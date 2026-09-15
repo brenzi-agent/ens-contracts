@@ -74,7 +74,7 @@ describe('the sponsored path does not depend on the price feed', () => {
     await sponsoredRegister(controller, 'stillpriced')
     expect(
       before - (await controller.read.registrarAllowance([registrar.address])),
-    ).toBe(yearPriceUSD(11))
+    ).toBe(yearPriceUSD(11, 2n))
   })
 
   it('the payable path does fail on a dead feed, loudly', async () => {
@@ -111,7 +111,7 @@ describe('the sponsored path does not depend on the price feed', () => {
       eventName: 'RegistrarAllowanceSpent',
       logs: receipt.logs,
     })
-    expect(spent[0].args.spentUSD).toBe(yearPriceUSD(8))
+    expect(spent[0].args.spentUSD).toBe(yearPriceUSD(8, 2n))
   })
 
   it('credited renewal emits a zero cost too', async () => {

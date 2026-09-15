@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
+  MIN_REGISTRATION,
   node,
   registration,
   YEAR,
@@ -76,7 +77,7 @@ describe('records do not survive re-registration', () => {
       account: owner,
     })
 
-    await connection.networkHelpers.time.increase(Number(YEAR + GRACE + 1n))
+    await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + GRACE + 1n))
     await sponsoredRegister(controller, 'rotated', victim.address, newResolver.address)
 
     // Testing `stale == defaultResolver` would no-op here and hand the victim a
@@ -98,7 +99,7 @@ describe('records do not survive re-registration', () => {
     )
 
     // it lapses through the whole grace period
-    await connection.networkHelpers.time.increase(Number(YEAR + GRACE + 1n))
+    await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + GRACE + 1n))
     expect(
       await baseRegistrar.read.available([BigInt(labelhash('contested'))]),
     ).toBe(true)
@@ -123,7 +124,7 @@ describe('records do not survive re-registration', () => {
         account: squatter,
       })
     }
-    await connection.networkHelpers.time.increase(Number(YEAR + GRACE + 1n))
+    await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + GRACE + 1n))
     await sponsoredRegister(controller, 'manykeys', victim.address, resolver.address)
 
     for (const k of ['simplex.contact', 'simplex.channel', 'url', 'avatar']) {
@@ -137,7 +138,7 @@ describe('records do not survive re-registration', () => {
     await resolver.write.setText([node('withdata'), KEY, 'https://smp/old'], {
       account: squatter,
     })
-    await connection.networkHelpers.time.increase(Number(YEAR + GRACE + 1n))
+    await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + GRACE + 1n))
 
     const { encodeFunctionData } = await import('viem')
     const reg = registration('withdata', victim.address, {
@@ -175,11 +176,11 @@ describe('records do not survive re-registration', () => {
       [node('brandname'), KEY, 'https://smp/squatter'],
       { account: squatter },
     )
-    await connection.networkHelpers.time.increase(Number(YEAR + GRACE + 1n))
+    await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + GRACE + 1n))
 
     await controller.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
     await controller.write.registerReserved(
-      ['brandname', victim.address, YEAR],
+      ['brandname', victim.address, MIN_REGISTRATION],
       { account: owner },
     )
     expect((await ens.read.owner([node('brandname')])).toLowerCase()).toBe(
@@ -194,7 +195,7 @@ describe('records do not survive re-registration', () => {
     await resolver.write.setText([node('paidagain'), KEY, 'stale'], {
       account: squatter,
     })
-    await connection.networkHelpers.time.increase(Number(YEAR + GRACE + 1n))
+    await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + GRACE + 1n))
 
     const reg = registration('paidagain', victim.address, {
       resolver: resolver.address,
@@ -232,7 +233,7 @@ describe('renewal and availability semantics', () => {
     await sponsoredRegister(controller, 'renewprem', victim.address, zeroAddressLocal)
     // move to just past expiry, inside grace: registration would owe a premium,
     // renewal must not
-    await connection.networkHelpers.time.increase(Number(YEAR + 1n))
+    await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + 1n))
 
     const before = await controller.read.registrarAllowance([registrar.address])
     await controller.write.renewWithCredit(['renewprem', YEAR, zeroHash], {

@@ -33,12 +33,13 @@ bool    public frozen;
 mapping(address => uint256) public registrarAllowance;
 address public defaultResolver;                    // packs with `publicSalesOpen`
 bool    public publicSalesOpen;
+mapping(address => bool) public wasDefaultResolver;
 
-uint256[45] private __gap;   // shrinks as state is added
+uint256[44] private __gap;   // shrinks as state is added
 ```
 
 `__gap` was `[50]`; `[49]` when `priceOracleFrozen` landed, `[48]` with
-`_reentrancyStatus`, and `[45]` with the three names-v2 slots. It is the budget
+`_reentrancyStatus`, and `[44]` with the four names-v2 slots. It is the budget
 for future state.
 
 **Reserved slots.** Two kinds of placeholder exist, and both are deliberate:
@@ -80,10 +81,10 @@ append-only from then on, and keep `None` at 0 — `delete` writes zero.
 ### Adding a variable — example
 
 ```solidity
-   bool public publicSalesOpen;       // last existing var
+   mapping(address => bool) public wasDefaultResolver;   // last existing var
 +  address public somethingNew;       // new var: takes 1 slot, declared here
--  uint256[45] private __gap;
-+  uint256[44] private __gap;         // shrink by 1
+-  uint256[44] private __gap;
++  uint256[43] private __gap;         // shrink by 1
 ```
 
 ### Removing a variable — reserve, do not delete

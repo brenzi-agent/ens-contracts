@@ -2,7 +2,7 @@ import hre from 'hardhat'
 import { encodeFunctionData, parseEther, zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { AMPLE_ALLOWANCE, deployNamesV2, registration, YEAR } from './fixtures/namesV2.js'
+import { AMPLE_ALLOWANCE, deployNamesV2, MIN_REGISTRATION, registration, YEAR } from './fixtures/namesV2.js'
 
 const TRADEMARK = 2 // SimplexController.Reason.Trademark
 
@@ -146,7 +146,7 @@ describe('freeze', () => {
 
     // brand outreach continues with no horizon
     await controller.write.addReservedNames([['brandish'], TRADEMARK], { account: owner })
-    await controller.write.registerReserved(['brandish', alice.address, YEAR], {
+    await controller.write.registerReserved(['brandish', alice.address, MIN_REGISTRATION], {
       account: owner,
     })
     await controller.write.removeReservedNames([['brandish']], {

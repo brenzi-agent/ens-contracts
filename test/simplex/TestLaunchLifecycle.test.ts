@@ -11,6 +11,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 
 import {
   FAR_FUTURE,
+  MIN_REGISTRATION,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
   signIntent,
@@ -97,7 +98,7 @@ function registration(label: string, owner: `0x${string}`, extra: any = {}) {
   return {
     label,
     owner,
-    duration: extra.duration ?? YEAR,
+    duration: extra.duration ?? MIN_REGISTRATION,
     secret: zeroHash,
     resolver: extra.resolver ?? zeroAddress,
     data: extra.data ?? [],
@@ -371,7 +372,7 @@ describe('launch lifecycle', () => {
       }
       const spent =
         before - (await controller.read.registrarAllowance([registrar.address]))
-      expect(spent).toBe(3n * yearPriceUSD(6))
+      expect(spent).toBe(3n * yearPriceUSD(6, 2n))
     })
 
     it('writes the buyer records at registration, for free', async () => {
@@ -702,13 +703,13 @@ describe('launch lifecycle', () => {
     it('the admin hands it to the brand, resolving with credits', async () => {
       await expect(
         controller.write.registerReserved(
-          ['newbrand', brand.address, YEAR],
+          ['newbrand', brand.address, MIN_REGISTRATION],
           { account: guardian },
         ),
       ).toBeRevertedWithString(OWNABLE)
 
       await controller.write.registerReserved(
-        ['newbrand', brand.address, YEAR],
+        ['newbrand', brand.address, MIN_REGISTRATION],
         { account: admin },
       )
       expect((await ens.read.owner([node('newbrand')])).toLowerCase()).toBe(
@@ -757,7 +758,7 @@ describe('launch lifecycle', () => {
       const after = await publicClient.getBalance({ address: buyer.address })
 
       expect(before - after).toBe(
-        yearPriceUSD(6) + receipt.gasUsed * receipt.effectiveGasPrice,
+        yearPriceUSD(6, 2n) + receipt.gasUsed * receipt.effectiveGasPrice,
       )
       expect(
         (
@@ -884,7 +885,7 @@ describe('launch lifecycle', () => {
         account: guardian,
       })
       await controller.write.registerReserved(
-        ['latebrand', brand.address, YEAR],
+        ['latebrand', brand.address, MIN_REGISTRATION],
         { account: admin },
       )
       expect((await ens.read.owner([node('latebrand')])).toLowerCase()).toBe(
@@ -979,7 +980,7 @@ describe('launch lifecycle', () => {
       // admin cannot re-register it
       await controller.write.addReservedNames([[held], TRADEMARK], { account: admin })
       await expect(
-        controller.write.registerReserved([held, admin.address, YEAR], {
+        controller.write.registerReserved([held, admin.address, MIN_REGISTRATION], {
           account: admin,
         }),
       ).toBeRevertedWithoutReason()

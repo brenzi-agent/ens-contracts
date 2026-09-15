@@ -2,7 +2,7 @@ import hre from 'hardhat'
 import { labelhash, zeroAddress } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { deployNamesV2, node, YEAR } from './fixtures/namesV2.js'
+import { deployNamesV2, MIN_REGISTRATION, node } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
 const TRADEMARK = 2 // SimplexController.Reason.Trademark
@@ -36,7 +36,7 @@ describe('no reverse resolution', () => {
           {
             label: 'reversebit',
             owner: brand.address,
-            duration: YEAR,
+            duration: MIN_REGISTRATION,
             secret: `0x${'00'.repeat(32)}` as `0x${string}`,
             resolver: zeroAddress,
             data: [] as `0x${string}`[],
@@ -64,7 +64,7 @@ describe('registerReserved', () => {
   it('gives the brand the token, the registry node and a working resolver', async () => {
     const { controller, ens, baseRegistrar, resolver } = await load()
     await controller.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
-    await controller.write.registerReserved(['brandname', brand.address, YEAR], {
+    await controller.write.registerReserved(['brandname', brand.address, MIN_REGISTRATION], {
       account: owner,
     })
 
@@ -84,7 +84,7 @@ describe('registerReserved', () => {
   it('the brand can then have records relayed without ever holding ETH', async () => {
     const { controller, resolver } = await load()
     await controller.write.addReservedNames([['relayable'], TRADEMARK], { account: owner })
-    await controller.write.registerReserved(['relayable', brand.address, YEAR], {
+    await controller.write.registerReserved(['relayable', brand.address, MIN_REGISTRATION], {
       account: owner,
     })
     expect((await resolver.read.relayedSigner([node('relayable')])).toLowerCase()).toBe(
@@ -95,7 +95,7 @@ describe('registerReserved', () => {
   it('refuses a name that is not reserved', async () => {
     const { controller } = await load()
     await expect(
-      controller.write.registerReserved(['unreserved', brand.address, YEAR], {
+      controller.write.registerReserved(['unreserved', brand.address, MIN_REGISTRATION], {
         account: owner,
       }),
     ).toBeRevertedWithCustomError('NameNotReserved')
@@ -121,7 +121,7 @@ describe('registerReserved', () => {
     })
     await expect(
       controller.write.registerReserved(
-        ['guardedname', brand.address, YEAR],
+        ['guardedname', brand.address, MIN_REGISTRATION],
         { account: guardian },
       ),
     ).toBeRevertedWithString('Ownable: caller is not the owner')
@@ -133,7 +133,7 @@ describe('registerReserved', () => {
     const reg = {
       label: 'alreadyheld',
       owner: brand.address,
-      duration: YEAR,
+      duration: MIN_REGISTRATION,
       secret: `0x${'00'.repeat(32)}` as `0x${string}`,
       resolver: zeroAddress,
       data: [] as `0x${string}`[],
@@ -154,7 +154,7 @@ describe('registerReserved', () => {
     })
     await expect(
       controller.write.registerReserved(
-        ['alreadyheld', owner.address, YEAR],
+        ['alreadyheld', owner.address, MIN_REGISTRATION],
         { account: owner },
       ),
     ).toBeRevertedWithoutReason()
@@ -172,7 +172,7 @@ describe('registerReserved', () => {
       account: owner,
     })
     await controller.write.registerReserved(
-      ['noresolver', brand.address, YEAR],
+      ['noresolver', brand.address, MIN_REGISTRATION],
       { account: owner },
     )
     // owner is set, but the name does not resolve — pinned so the behaviour is

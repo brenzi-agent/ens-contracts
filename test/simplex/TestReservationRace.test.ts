@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
+  MIN_REGISTRATION,
   registration,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
@@ -157,7 +158,7 @@ describe('reservation vs. registration race', () => {
       account: guardian,
     })
     await controller.write.registerReserved(
-      ['ownerhands', squatter.address, 365n * 86400n],
+      ['ownerhands', squatter.address, MIN_REGISTRATION],
       { account: owner },
     )
     expect(

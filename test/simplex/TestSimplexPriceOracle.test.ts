@@ -459,12 +459,12 @@ describe('SimplexPriceOracle', () => {
       expect(after).toBe(2n * USD)
       expect(after).not.toBe(before)
 
-      await register(controller, 'sixchr', after)
+      await register(controller, 'sixchr', 2n * after)
       expect(await controller.read.available(['sixchr'])).toBe(false)
       // the fee actually charged is the new one, and the excess is refunded
       expect(
         await publicClient.getBalance({ address: controller.address }),
-      ).toBe(after)
+      ).toBe(2n * after)
     })
 
     it('the sponsored path spends the new price in attoUSD', async () => {
@@ -481,7 +481,7 @@ describe('SimplexPriceOracle', () => {
       expect(
         await controller.read.registrarAllowance([registrar.address]),
       ).toBe(
-        AMPLE_ALLOWANCE - 8n * USD, // five characters, so $8
+        AMPLE_ALLOWANCE - 2n * 8n * USD, // five characters, so $8
       )
     })
   })

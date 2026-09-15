@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest'
 import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
+  MIN_REGISTRATION,
   registration,
   YEAR,
   YEAR_PRICE_USD,
@@ -86,7 +87,7 @@ describe('public sales switch', () => {
   it('registerReserved is exempt', async () => {
     const { controller } = await load()
     await controller.write.addReservedNames([['reserved'], TRADEMARK], { account: owner })
-    await controller.write.registerReserved(['reserved', alice.address, YEAR], {
+    await controller.write.registerReserved(['reserved', alice.address, MIN_REGISTRATION], {
       account: owner,
     })
   })

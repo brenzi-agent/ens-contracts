@@ -51,7 +51,7 @@ describe('registrar allowance', () => {
     await sponsoredRegister(controller, registration('alicename', alice.address))
 
     expect(await controller.read.registrarAllowance([registrar.address])).toBe(
-      AMPLE_ALLOWANCE - YEAR_PRICE_USD,
+      AMPLE_ALLOWANCE - 2n * YEAR_PRICE_USD,
     )
   })
 
@@ -75,17 +75,17 @@ describe('registrar allowance', () => {
     await controller.write.setMinCharLength([3], { account: owner })
     // a three-character name alone costs a thousand times the base price
     await controller.write.setRegistrarAllowance(
-      [registrar.address, yearPriceUSD(3) * 2n],
+      [registrar.address, yearPriceUSD(3) * 4n],
       { account: guardian },
     )
 
     // $10 at six characters and above, then ten times more per character lost
     const names = ['alicelongname', 'sevench', 'sixchr', 'fivec', 'four', 'thr']
-    let remaining = yearPriceUSD(3) * 2n
+    let remaining = yearPriceUSD(3) * 4n
     for (const label of names) {
       await sponsoredRegister(controller, registration(label, alice.address))
       const now = await controller.read.registrarAllowance([registrar.address])
-      expect(remaining - now).toBe(yearPriceUSD(label.length))
+      expect(remaining - now).toBe(yearPriceUSD(label.length, 2n))
       remaining = now
     }
 
@@ -113,8 +113,8 @@ describe('registrar allowance', () => {
       registrar.address,
     ])
 
-    expect(AMPLE_ALLOWANCE - afterSix).toBe(yearPriceUSD(6))
-    expect(afterSix - afterFive).toBe(yearPriceUSD(5))
+    expect(AMPLE_ALLOWANCE - afterSix).toBe(yearPriceUSD(6, 2n))
+    expect(afterSix - afterFive).toBe(yearPriceUSD(5, 2n))
     expect(afterSix - afterFive).toBe(10n * (AMPLE_ALLOWANCE - afterSix))
   })
 
@@ -123,7 +123,7 @@ describe('registrar allowance', () => {
     await controller.write.setMinCharLength([3], { account: owner })
     // enough for a six-character name, nowhere near a four-character one
     await controller.write.setRegistrarAllowance(
-      [registrar.address, yearPriceUSD(6) * 2n],
+      [registrar.address, yearPriceUSD(6) * 4n],
       { account: guardian },
     )
 
@@ -139,11 +139,11 @@ describe('registrar allowance', () => {
     // the long one goes through on the same allowance
     await sponsoredRegister(controller, registration('sixchr', alice.address))
     expect(await controller.read.registrarAllowance([registrar.address])).toBe(
-      yearPriceUSD(6),
+      yearPriceUSD(6, 2n),
     )
   })
 
-  it('a multi-year short name exhausts an allowance a one-year long name barely touches', async () => {
+  it('a multi-year short name exhausts an allowance a two-year long name barely touches', async () => {
     const { controller } = await load()
     await controller.write.setMinCharLength([3], { account: owner })
     await controller.write.setRegistrarAllowance(
@@ -195,7 +195,7 @@ describe('registrar allowance', () => {
   it('refuses when the allowance cannot cover the name', async () => {
     const { controller } = await load()
     await controller.write.setRegistrarAllowance(
-      [registrar.address, YEAR_PRICE_USD - 1n],
+      [registrar.address, 2n * YEAR_PRICE_USD - 1n],
       { account: guardian },
     )
     const reg = registration('tooexpensive', alice.address)
@@ -300,7 +300,7 @@ describe('registrar allowance', () => {
     const receipt = await publicClient.getTransactionReceipt({ hash })
     const after = await publicClient.getBalance({ address: alice.address })
     expect(before - after).toBe(
-      YEAR_PRICE_USD + receipt.gasUsed * receipt.effectiveGasPrice,
+      2n * YEAR_PRICE_USD + receipt.gasUsed * receipt.effectiveGasPrice,
     )
     // the payable path spends no allowance
     expect(await controller.read.registrarAllowance([alice.address])).toBe(0n)
