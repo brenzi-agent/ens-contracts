@@ -128,10 +128,19 @@ export async function deployNamesV2(
     account: accounts.owner,
   })
 
+  const sponsor = await viem.deployContract('SimplexSponsor', [
+    controller.address,
+    baseRegistrar.address,
+  ])
+  await controller.write.setSponsor([sponsor.address], {
+    account: accounts.owner,
+  })
+
   return {
     ens,
     baseRegistrar,
     controller,
+    sponsor,
     implementation,
     resolver,
     subnameRegistrar,
@@ -193,13 +202,27 @@ export const eip712Types = {
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
-  TransferName: [
+  ApproveName: [
     { name: 'from', type: 'address' },
     { name: 'to', type: 'address' },
     { name: 'tokenId', type: 'uint256' },
     { name: 'ephemeralPubKey', type: 'bytes' },
     { name: 'viewTag', type: 'bytes1' },
     { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+  ClaimName: [
+    { name: 'from', type: 'address' },
+    { name: 'to', type: 'address' },
+    { name: 'tokenId', type: 'uint256' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+  RegisterName: [
+    { name: 'label', type: 'string' },
+    { name: 'owner', type: 'address' },
+    { name: 'resolver', type: 'address' },
+    { name: 'data', type: 'bytes[]' },
     { name: 'deadline', type: 'uint256' },
   ],
   DeleteSubname: [
@@ -220,7 +243,8 @@ export async function signIntent(
     | 'SimplexResolver'
     | 'SimplexENSRegistry'
     | 'SimplexSubnames'
-    | 'SimplexNames',
+    | 'SimplexNames'
+    | 'SimplexSponsor',
   verifyingContract: `0x${string}`,
   primaryType: keyof typeof eip712Types,
   message: Record<string, unknown>,
@@ -233,6 +257,45 @@ export async function signIntent(
     primaryType,
     message,
   })
+}
+
+/**
+ * `registerWithCredit` arguments for `reg`, carrying its owner's `RegisterName`
+ * signature. The owner must be one of the connection's wallet clients.
+ */
+export async function withConsent<
+  R extends {
+    label: string
+    owner: `0x${string}`
+    resolver: `0x${string}`
+    data: readonly `0x${string}`[]
+  },
+>(
+  connection: NetworkConnection,
+  sponsor: { address: `0x${string}` },
+  reg: R,
+  deadline = FAR_FUTURE,
+): Promise<[R, bigint, `0x${string}`]> {
+  const clients = await connection.viem.getWalletClients()
+  const ownerClient = clients.find(
+    (c) => c.account.address.toLowerCase() === reg.owner.toLowerCase(),
+  )
+  if (!ownerClient) throw new Error(`no wallet client for ${reg.owner}`)
+  const sig = await signIntent(
+    await connection.viem.getPublicClient(),
+    ownerClient,
+    'SimplexSponsor',
+    sponsor.address,
+    'RegisterName',
+    {
+      label: reg.label,
+      owner: reg.owner,
+      resolver: reg.resolver,
+      data: reg.data,
+      deadline,
+    },
+  )
+  return [reg, deadline, sig]
 }
 
 /** Enough allowance that a test never has to think about it: $1000. */

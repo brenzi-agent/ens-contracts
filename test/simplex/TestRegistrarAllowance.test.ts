@@ -6,6 +6,7 @@ import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
   registration,
+  withConsent,
   YEAR,
   YEAR_PRICE_USD,
   yearPriceUSD,
@@ -28,11 +29,14 @@ async function fixture() {
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
-async function sponsoredRegister(controller: any, reg: any) {
+async function sponsoredRegister({ controller, sponsor }: any, reg: any) {
   await controller.write.commit([await controller.read.makeCommitment([reg])], {
     account: registrar,
   })
-  return controller.write.registerWithCredit([reg], { account: registrar })
+  return sponsor.write.registerWithCredit(
+    await withConsent(connection, sponsor, reg),
+    { account: registrar },
+  )
 }
 
 /**
@@ -42,39 +46,39 @@ async function sponsoredRegister(controller: any, reg: any) {
  */
 describe('registrar allowance', () => {
   it('deducts the name price, not a flat unit', async () => {
-    const { controller } = await load()
-    await controller.write.setRegistrarAllowance(
+    const { controller, sponsor } = await load()
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, AMPLE_ALLOWANCE],
       { account: guardian },
     )
 
-    await sponsoredRegister(controller, registration('alicename', alice.address))
+    await sponsoredRegister({ controller, sponsor }, registration('alicename', alice.address))
 
-    expect(await controller.read.registrarAllowance([registrar.address])).toBe(
+    expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
       AMPLE_ALLOWANCE - 2n * YEAR_PRICE_USD,
     )
   })
 
   it('a longer term costs proportionally more', async () => {
-    const { controller } = await load()
-    await controller.write.setRegistrarAllowance(
+    const { controller, sponsor } = await load()
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, AMPLE_ALLOWANCE],
       { account: guardian },
     )
     await sponsoredRegister(
-      controller,
+      { controller, sponsor },
       registration('threeyrs', alice.address, { duration: 3n * YEAR }),
     )
-    expect(await controller.read.registrarAllowance([registrar.address])).toBe(
+    expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
       AMPLE_ALLOWANCE - 3n * YEAR_PRICE_USD,
     )
   })
 
   it('deducts the right price at every priced length', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     await controller.write.setMinCharLength([3], { account: owner })
     // a three-character name alone costs a thousand times the base price
-    await controller.write.setRegistrarAllowance(
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, yearPriceUSD(3) * 4n],
       { account: guardian },
     )
@@ -83,8 +87,8 @@ describe('registrar allowance', () => {
     const names = ['alicelongname', 'sevench', 'sixchr', 'fivec', 'four', 'thr']
     let remaining = yearPriceUSD(3) * 4n
     for (const label of names) {
-      await sponsoredRegister(controller, registration(label, alice.address))
-      const now = await controller.read.registrarAllowance([registrar.address])
+      await sponsoredRegister({ controller, sponsor }, registration(label, alice.address))
+      const now = await sponsor.read.registrarAllowance([registrar.address])
       expect(remaining - now).toBe(yearPriceUSD(label.length, 2n))
       remaining = now
     }
@@ -97,19 +101,19 @@ describe('registrar allowance', () => {
   })
 
   it('a six-character name is priced apart from a five-character one', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     await controller.write.setMinCharLength([5], { account: owner })
-    await controller.write.setRegistrarAllowance(
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, AMPLE_ALLOWANCE],
       { account: guardian },
     )
 
-    await sponsoredRegister(controller, registration('sixchr', alice.address))
-    const afterSix = await controller.read.registrarAllowance([
+    await sponsoredRegister({ controller, sponsor }, registration('sixchr', alice.address))
+    const afterSix = await sponsor.read.registrarAllowance([
       registrar.address,
     ])
-    await sponsoredRegister(controller, registration('fivec', alice.address))
-    const afterFive = await controller.read.registrarAllowance([
+    await sponsoredRegister({ controller, sponsor }, registration('fivec', alice.address))
+    const afterFive = await sponsor.read.registrarAllowance([
       registrar.address,
     ])
 
@@ -119,10 +123,10 @@ describe('registrar allowance', () => {
   })
 
   it('an allowance that covers a long name does not cover a short one', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     await controller.write.setMinCharLength([3], { account: owner })
     // enough for a six-character name, nowhere near a four-character one
-    await controller.write.setRegistrarAllowance(
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, yearPriceUSD(6) * 4n],
       { account: guardian },
     )
@@ -133,20 +137,23 @@ describe('registrar allowance', () => {
       { account: registrar },
     )
     await expect(
-      controller.write.registerWithCredit([short], { account: registrar }),
+      sponsor.write.registerWithCredit(
+        await withConsent(connection, sponsor, short),
+        { account: registrar },
+      ),
     ).toBeRevertedWithCustomError('InsufficientAllowance')
 
     // the long one goes through on the same allowance
-    await sponsoredRegister(controller, registration('sixchr', alice.address))
-    expect(await controller.read.registrarAllowance([registrar.address])).toBe(
+    await sponsoredRegister({ controller, sponsor }, registration('sixchr', alice.address))
+    expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
       yearPriceUSD(6, 2n),
     )
   })
 
   it('a multi-year short name exhausts an allowance a two-year long name barely touches', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     await controller.write.setMinCharLength([3], { account: owner })
-    await controller.write.setRegistrarAllowance(
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, yearPriceUSD(4) * 2n],
       { account: guardian },
     )
@@ -159,42 +166,45 @@ describe('registrar allowance', () => {
       { account: registrar },
     )
     await expect(
-      controller.write.registerWithCredit([threeYears], { account: registrar }),
+      sponsor.write.registerWithCredit(
+        await withConsent(connection, sponsor, threeYears),
+        { account: registrar },
+      ),
     ).toBeRevertedWithCustomError('InsufficientAllowance')
 
     await sponsoredRegister(
-      controller,
+      { controller, sponsor },
       registration('four', alice.address, { duration: 2n * YEAR }),
     )
-    expect(await controller.read.registrarAllowance([registrar.address])).toBe(
+    expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
       0n,
     )
   })
 
   it('the unit is USD, so a moving ETH price does not change what the allowance buys', async () => {
-    const { controller, dummyOracle } = await load()
-    await controller.write.setRegistrarAllowance(
+    const { controller, dummyOracle, sponsor } = await load()
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, AMPLE_ALLOWANCE],
       { account: guardian },
     )
     // ETH triples against USD between the two registrations
-    await sponsoredRegister(controller, registration('beforemv', alice.address))
+    await sponsoredRegister({ controller, sponsor }, registration('beforemv', alice.address))
     const firstCost =
       AMPLE_ALLOWANCE -
-      (await controller.read.registrarAllowance([registrar.address]))
+      (await sponsor.read.registrarAllowance([registrar.address]))
 
     await dummyOracle.write.set([300000000n])
-    const before = await controller.read.registrarAllowance([registrar.address])
-    await sponsoredRegister(controller, registration('aftermove', alice.address))
+    const before = await sponsor.read.registrarAllowance([registrar.address])
+    await sponsoredRegister({ controller, sponsor }, registration('aftermove', alice.address))
     const secondCost =
-      before - (await controller.read.registrarAllowance([registrar.address]))
+      before - (await sponsor.read.registrarAllowance([registrar.address]))
 
     expect(secondCost).toBe(firstCost)
   })
 
   it('refuses when the allowance cannot cover the name', async () => {
-    const { controller } = await load()
-    await controller.write.setRegistrarAllowance(
+    const { controller, sponsor } = await load()
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, 2n * YEAR_PRICE_USD - 1n],
       { account: guardian },
     )
@@ -204,87 +214,93 @@ describe('registrar allowance', () => {
       { account: registrar },
     )
     await expect(
-      controller.write.registerWithCredit([reg], { account: registrar }),
+      sponsor.write.registerWithCredit(
+        await withConsent(connection, sponsor, reg),
+        { account: registrar },
+      ),
     ).toBeRevertedWithCustomError('InsufficientAllowance')
   })
 
   it('refuses a registrar with no allowance at all', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     const reg = registration('noallowance', alice.address)
     await controller.write.commit(
       [await controller.read.makeCommitment([reg])],
       { account: registrar },
     )
     await expect(
-      controller.write.registerWithCredit([reg], { account: registrar }),
+      sponsor.write.registerWithCredit(
+        await withConsent(connection, sponsor, reg),
+        { account: registrar },
+      ),
     ).toBeRevertedWithCustomError('InsufficientAllowance')
   })
 
   it('renewWithCredit deducts the renewal price and extends the name', async () => {
-    const { controller, baseRegistrar } = await load()
-    await controller.write.setRegistrarAllowance(
+    const { controller, baseRegistrar, sponsor } = await load()
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, AMPLE_ALLOWANCE],
       { account: guardian },
     )
-    await sponsoredRegister(controller, registration('renewable', alice.address))
-    const afterRegister = await controller.read.registrarAllowance([
+    await sponsoredRegister({ controller, sponsor }, registration('renewable', alice.address))
+    const afterRegister = await sponsor.read.registrarAllowance([
       registrar.address,
     ])
 
     const tokenId = BigInt(labelhash('renewable'))
     const before = await baseRegistrar.read.nameExpires([tokenId])
-    await controller.write.renewWithCredit(['renewable', YEAR, zeroHash], {
+    await sponsor.write.renewWithCredit(['renewable', YEAR, zeroHash], {
       account: registrar,
     })
 
     expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)
-    expect(await controller.read.registrarAllowance([registrar.address])).toBe(
+    expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
       afterRegister - YEAR_PRICE_USD,
     )
   })
 
   it('the guardian can zero an allowance in one transaction', async () => {
-    const { controller } = await load()
-    await controller.write.setRegistrarAllowance(
+    const { controller, sponsor } = await load()
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, AMPLE_ALLOWANCE],
       { account: guardian },
     )
-    await controller.write.setRegistrarAllowance([registrar.address, 0n], {
+    await sponsor.write.setRegistrarAllowance([registrar.address, 0n], {
       account: guardian,
     })
-    expect(await controller.read.registrarAllowance([registrar.address])).toBe(
+    expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
       0n,
     )
   })
 
   it('only the beneficiary may set it — not the owner, not anyone else', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     await expect(
-      controller.write.setRegistrarAllowance([registrar.address, 1n], {
+      sponsor.write.setRegistrarAllowance([registrar.address, 1n], {
         account: owner,
       }),
     ).toBeRevertedWithCustomError('NotBeneficiary')
     await expect(
-      controller.write.setRegistrarAllowance([registrar.address, 1n], {
+      sponsor.write.setRegistrarAllowance([registrar.address, 1n], {
         account: alice,
       }),
     ).toBeRevertedWithCustomError('NotBeneficiary')
   })
 
   it('a credited registration still attaches no value to the controller', async () => {
-    const { controller } = await load()
-    await controller.write.setRegistrarAllowance(
+    const { controller, sponsor } = await load()
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, AMPLE_ALLOWANCE],
       { account: guardian },
     )
-    await sponsoredRegister(controller, registration('freeofeth', alice.address))
+    await sponsoredRegister({ controller, sponsor }, registration('freeofeth', alice.address))
     expect(await publicClient.getBalance({ address: controller.address })).toBe(
       0n,
     )
   })
 
   it('the payable path is unaffected and still refunds the overpayment', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     await controller.write.setPublicSalesOpen([true], { account: owner })
 
     const reg = registration('payforit', alice.address)
@@ -303,6 +319,6 @@ describe('registrar allowance', () => {
       2n * YEAR_PRICE_USD + receipt.gasUsed * receipt.effectiveGasPrice,
     )
     // the payable path spends no allowance
-    expect(await controller.read.registrarAllowance([alice.address])).toBe(0n)
+    expect(await sponsor.read.registrarAllowance([alice.address])).toBe(0n)
   })
 })

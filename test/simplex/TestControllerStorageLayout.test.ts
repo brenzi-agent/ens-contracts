@@ -6,11 +6,10 @@ import { deployNamesV2 } from './fixtures/namesV2.js'
 
 const connection = await hre.network.connect()
 const publicClient = await connection.viem.getPublicClient()
-const [ownerClient, guardianClient, , aliceClient] =
+const [ownerClient, guardianClient] =
   await connection.viem.getWalletClients()
 const owner = ownerClient.account
 const guardian = guardianClient.account
-const alice = aliceClient.account
 
 async function fixture() {
   return deployNamesV2(connection, {
@@ -90,7 +89,7 @@ describe('controller storage layout', () => {
       await snapshot(controller.address),
     )
 
-    // beneficiary/frozen, then the credits mapping, then defaultResolver/publicSalesOpen
+    // beneficiary/frozen, then the retired credits slot, then defaultResolver/publicSalesOpen
     expect(resolverSlot - beneficiarySlot).toBe(2)
 
     // and the reentrancy guard, the last pre-existing variable, sits just before
@@ -143,15 +142,17 @@ describe('controller storage layout', () => {
     )
   })
 
-  it('the credits mapping is keyed from its own slot', async () => {
-    const { controller } = await load()
-    const before = await snapshot(controller.address)
-    await controller.write.setRegistrarAllowance([alice.address, 7n], {
-      account: guardian,
+  it('the sponsor is appended after wasDefaultResolver', async () => {
+    const { controller, sponsor } = await load()
+    const base = await snapshot(controller.address)
+    await controller.write.setPublicSalesOpen([true], { account: owner })
+    const [resolverSlot] = changed(base, await snapshot(controller.address))
+    // defaultResolver/publicSalesOpen, the wasDefaultResolver mapping, then the
+    // sponsor the fixture set
+    const word = await publicClient.getStorageAt({
+      address: controller.address,
+      slot: pad(toHex(resolverSlot + 2)),
     })
-    const after = await snapshot(controller.address)
-    // a mapping write lands at a hashed slot, never in the scanned range
-    expect(changed(before, after)).toHaveLength(0)
-    expect(await controller.read.registrarAllowance([alice.address])).toBe(7n)
+    expect(word!.toLowerCase()).toContain(sponsor.address.slice(2).toLowerCase())
   })
 })

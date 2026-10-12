@@ -7,6 +7,7 @@ import {
   deployNamesV2,
   MIN_REGISTRATION,
   registration,
+  withConsent,
   YEAR,
   YEAR_PRICE_USD,
 } from './fixtures/namesV2.js'
@@ -27,7 +28,7 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  await f.controller.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
+  await f.sponsor.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
     account: guardian,
   })
   return f
@@ -45,12 +46,15 @@ async function payableRegister(controller: any, label: string) {
   })
 }
 
-async function creditedRegister(controller: any, label: string) {
+async function creditedRegister({ controller, sponsor }: any, label: string) {
   const reg = registration(label, alice.address)
   await controller.write.commit([await controller.read.makeCommitment([reg])], {
     account: registrar,
   })
-  return controller.write.registerWithCredit([reg], { account: registrar })
+  return sponsor.write.registerWithCredit(
+    await withConsent(connection, sponsor, reg),
+    { account: registrar },
+  )
 }
 
 describe('public sales switch', () => {
@@ -79,9 +83,9 @@ describe('public sales switch', () => {
   })
 
   it('the credited path is exempt — this is how the investor window is served', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     expect(await controller.read.publicSalesOpen()).toBe(false)
-    await creditedRegister(controller, 'investor')
+    await creditedRegister({ controller, sponsor }, 'investor')
   })
 
   it('registerReserved is exempt', async () => {
@@ -93,11 +97,11 @@ describe('public sales switch', () => {
   })
 
   it('renewal is exempt in both forms, so a pause never costs anyone a name', async () => {
-    const { controller } = await load()
-    await creditedRegister(controller, 'renewany')
+    const { controller, sponsor } = await load()
+    await creditedRegister({ controller, sponsor }, 'renewany')
     expect(await controller.read.publicSalesOpen()).toBe(false)
 
-    await controller.write.renewWithCredit(['renewany', YEAR, zeroHash], {
+    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash], {
       account: registrar,
     })
     await controller.write.renew(['renewany', YEAR, zeroHash], {

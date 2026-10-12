@@ -7,6 +7,7 @@ import {
   deployNamesV2,
   node,
   registration,
+  withConsent,
 } from './fixtures/namesV2.js'
 
 /**
@@ -40,7 +41,7 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  await f.controller.write.setRegistrarAllowance(
+  await f.sponsor.write.setRegistrarAllowance(
     [registrar.address, AMPLE_ALLOWANCE],
     { account: guardian },
   )
@@ -49,7 +50,10 @@ async function fixture() {
     [await f.controller.read.makeCommitment([reg])],
     { account: registrar },
   )
-  await f.controller.write.registerWithCredit([reg], { account: registrar })
+  await f.sponsor.write.registerWithCredit(
+    await withConsent(connection, f.sponsor, reg),
+    { account: registrar },
+  )
   return f
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
@@ -78,9 +82,12 @@ describe('shadow subnames (H2)', () => {
     await ens.write.setSubnodeOwner([NODE, labelhash('pay'), seller.address], {
       account: seller,
     })
+    await baseRegistrar.write.approve([buyer.address, TOKEN], {
+      account: seller,
+    })
     await baseRegistrar.write.transferFrom(
       [seller.address, buyer.address, TOKEN],
-      { account: seller },
+      { account: buyer },
     )
     // Auto-reclaim moved the 2LD node itself...
     expect((await ens.read.owner([NODE])).toLowerCase()).toBe(
@@ -97,9 +104,12 @@ describe('shadow subnames (H2)', () => {
     await ens.write.setSubnodeOwner([NODE, labelhash('pay'), seller.address], {
       account: seller,
     })
+    await baseRegistrar.write.approve([buyer.address, TOKEN], {
+      account: seller,
+    })
     await baseRegistrar.write.transferFrom(
       [seller.address, buyer.address, TOKEN],
-      { account: seller },
+      { account: buyer },
     )
     // This is the whole reason H2 is a disclosure problem and not a theft one:
     // ENSRegistry.setSubnodeOwner is authorised against the PARENT, so the new
@@ -138,9 +148,12 @@ describe('shadow subnames (H2)', () => {
       seller.address.toLowerCase(),
     )
 
+    await baseRegistrar.write.approve([buyer.address, TOKEN], {
+      account: seller,
+    })
     await baseRegistrar.write.transferFrom(
       [seller.address, buyer.address, TOKEN],
-      { account: seller },
+      { account: buyer },
     )
     // Still recoverable: the buyer owns the parent.
     await ens.write.setSubnodeOwner([NODE, labelhash('pay'), buyer.address], {

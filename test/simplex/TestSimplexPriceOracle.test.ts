@@ -6,6 +6,7 @@ import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
   registration,
+  withConsent,
   YEAR,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
@@ -421,7 +422,7 @@ describe('SimplexPriceOracle', () => {
         beneficiary: guardian.address,
       })
       await f.controller.write.setPublicSalesOpen([true], { account: guardian })
-      await f.controller.write.setRegistrarAllowance(
+      await f.sponsor.write.setRegistrarAllowance(
         [registrar.address, AMPLE_ALLOWANCE],
         { account: guardian },
       )
@@ -468,7 +469,7 @@ describe('SimplexPriceOracle', () => {
     })
 
     it('the sponsored path spends the new price in attoUSD', async () => {
-      const { controller, priceOracle } = await loadStack()
+      const { controller, priceOracle, sponsor } = await loadStack()
       await priceOracle.write.setPrices([2n * CENTS, LAUNCH], { account: owner })
       // drop to five characters, the only length priced at $8
       await controller.write.setMinCharLength([5], { account: owner })
@@ -477,9 +478,12 @@ describe('SimplexPriceOracle', () => {
         [await controller.read.makeCommitment([reg])],
         { account: registrar },
       )
-      await controller.write.registerWithCredit([reg], { account: registrar })
+      await sponsor.write.registerWithCredit(
+        await withConsent(connection, sponsor, reg),
+        { account: registrar },
+      )
       expect(
-        await controller.read.registrarAllowance([registrar.address]),
+        await sponsor.read.registrarAllowance([registrar.address]),
       ).toBe(
         AMPLE_ALLOWANCE - 2n * 8n * USD, // five characters, so $8
       )

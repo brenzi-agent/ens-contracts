@@ -220,6 +220,7 @@ contract BaseRegistrarImplementation is
     /// @dev Reclaim ownership of a name in ENS, if you own it in the registrar.
     function reclaim(uint256 id, address owner) external override live {
         require(_isApprovedOrOwner(msg.sender, id));
+        require(owner == ownerOf(id));
         ens.setSubnodeOwner(baseNode, bytes32(id), owner);
     }
 
@@ -242,14 +243,42 @@ contract BaseRegistrarImplementation is
     }
 
     /// ------------------------------------------------------------------
-    /// Sponsored transfer (EIP-712)
+    /// Consented transfer
     ///
-    /// Lets an owner move a name by signing rather than by paying gas, so a
-    /// relayer can submit on their behalf. The relayer pays gas and nothing
+    /// A name moves only when its recipient takes it, so nobody can be made
+    /// the holder of a name they never wanted. The holder offers it with
+    /// `approve`, and the recipient takes it with `transferFrom` to itself.
+    /// Pushing to anyone else reverts, which also rules out marketplaces whose
+    /// settlement contract delivers to the buyer. Controllers are exempt: they
+    /// hand a fresh registration to an owner whose consent they checked.
+    ///
+    /// Either half can be signed instead of sent (EIP-712), so a relayer can
+    /// submit it and neither party needs ETH. The relayer pays gas and nothing
     /// else: it cannot choose the recipient, cannot replay, and cannot act
-    /// after the deadline. No standing approval is granted — each signature
-    /// authorises exactly one transfer.
+    /// after the deadline.
     /// ------------------------------------------------------------------
+
+    function transferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) public override(IERC721, ERC721) {
+        if (to != msg.sender && !controllers[msg.sender])
+            revert RecipientMustBeCaller();
+        super.transferFrom(from, to, tokenId);
+    }
+
+    /// @dev The three-argument overload delegates here.
+    function safeTransferFrom(
+        address from,
+        address to,
+        uint256 tokenId,
+        bytes memory data
+    ) public override(IERC721, ERC721) {
+        if (to != msg.sender && !controllers[msg.sender])
+            revert RecipientMustBeCaller();
+        super.safeTransferFrom(from, to, tokenId, data);
+    }
 
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256(
@@ -257,9 +286,13 @@ contract BaseRegistrarImplementation is
         );
     bytes32 private constant _EIP712_NAME = keccak256("SimplexNames");
     bytes32 private constant _EIP712_VERSION = keccak256("1");
-    bytes32 public constant TRANSFER_TYPEHASH =
+    bytes32 public constant APPROVE_TYPEHASH =
         keccak256(
-            "TransferName(address from,address to,uint256 tokenId,bytes ephemeralPubKey,bytes1 viewTag,uint256 nonce,uint256 deadline)"
+            "ApproveName(address from,address to,uint256 tokenId,bytes ephemeralPubKey,bytes1 viewTag,uint256 nonce,uint256 deadline)"
+        );
+    bytes32 public constant CLAIM_TYPEHASH =
+        keccak256(
+            "ClaimName(address from,address to,uint256 tokenId,uint256 nonce,uint256 deadline)"
         );
 
     /// @dev ERC-5564 scheme id 1: secp256k1 with view tags, the only scheme the
@@ -275,8 +308,9 @@ contract BaseRegistrarImplementation is
     ///      topic without special-casing. It carries the sender's ephemeral
     ///      public key so the recipient can rediscover a stealth destination
     ///      from their seed alone — without it a gift is findable only from a
-    ///      message, and a restored device has no messages. Emitted only when
-    ///      the sender opts in, so an ordinary transfer costs nothing extra.
+    ///      message, and a restored device has no messages. Emitted with the
+    ///      offer, so an offer not yet claimed is findable too, and only when
+    ///      the sender opts in, so an ordinary offer costs nothing extra.
     ///
     ///      Deliberately emitted by this contract rather than through the
     ///      canonical singleton announcer: a recovery scan then covers SimpleX
@@ -295,6 +329,8 @@ contract BaseRegistrarImplementation is
     error InvalidNonce();
     error InvalidSignature();
     error NotNameOwner();
+    error RecipientMustBeCaller();
+    error NotOffered();
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return
@@ -309,15 +345,18 @@ contract BaseRegistrarImplementation is
             );
     }
 
+    /// @notice Offer `tokenId` to `to`, signed by the holder `from`: the
+    ///         `approve` half. `to = address(0)` withdraws the offer. The name
+    ///         stays with `from` until `to` claims it.
     /// @param ephemeralPubKey Compressed secp256k1 point, or empty for no
     ///        announcement. Inside the signed struct: the announcement asserts
-    ///        that this transfer was stealth-derived for this recipient, and a
+    ///        that this offer was stealth-derived for this recipient, and a
     ///        relayer free to choose it could attach a fabricated derivation to
-    ///        a genuine transfer, or suppress the real one. Signing it costs a
-    ///        hash and makes the announcement as authentic as the transfer.
+    ///        a genuine offer, or suppress the real one. Signing it costs a
+    ///        hash and makes the announcement as authentic as the offer.
     /// @param viewTag First byte of the shared secret; lets a scanner discard
     ///        ~255/256 of announcements on one hash. Also signed.
-    function transferWithSig(
+    function approveWithSig(
         address from,
         address to,
         uint256 tokenId,
@@ -327,21 +366,19 @@ contract BaseRegistrarImplementation is
         bytes calldata ephemeralPubKey,
         bytes1 viewTag
     ) external {
-        // Without this a holder could self-transfer in a loop and emit
-        // announcements for the price of gas alone, so every recipient's
-        // recovery scan would grow without bound. One line is what keeps the
-        // announcement set proportional to real gifts.
+        // An offer to oneself is never a gift, so it is refused rather than
+        // announced to every recipient's recovery scan.
         if (to == from) revert TransferToSelf();
         if (block.timestamp > deadline) revert SignatureExpired();
         if (nonce != nonces[from]) revert InvalidNonce();
         // Grace-aware ownerOf reverts once expired, so a lapsed name cannot be
-        // moved out from under the person about to re-register it.
+        // offered out from under the person about to re-register it.
         if (ownerOf(tokenId) != from) revert NotNameOwner();
 
         if (
             !SignatureChecker.isValidSignatureNow(
                 from,
-                _transferDigest(
+                _approveDigest(
                     from,
                     to,
                     tokenId,
@@ -357,16 +394,50 @@ contract BaseRegistrarImplementation is
         unchecked {
             nonces[from] = nonce + 1;
         }
-        // _transfer, not a raw write: the auto-reclaim hook below must fire so
-        // the registry node and its subnames follow the token.
-        _transfer(from, to, tokenId);
+        _approve(to, tokenId);
 
         if (ephemeralPubKey.length != 0)
             _announce(to, tokenId, ephemeralPubKey, viewTag);
     }
 
-    /// @dev Split out of `transferWithSig` for the same stack reason as
-    ///      `_transferDigest`.
+    /// @notice Take `tokenId` from `from`, signed by the recipient `to`: the
+    ///         `transferFrom` half. Only an open offer to `to` can be claimed,
+    ///         and every transfer or re-registration clears the offer.
+    function claimWithSig(
+        address from,
+        address to,
+        uint256 tokenId,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata sig
+    ) external {
+        if (block.timestamp > deadline) revert SignatureExpired();
+        if (nonce != nonces[to]) revert InvalidNonce();
+        if (ownerOf(tokenId) != from) revert NotNameOwner();
+        if (getApproved(tokenId) != to) revert NotOffered();
+
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(CLAIM_TYPEHASH, from, to, tokenId, nonce, deadline)
+                )
+            )
+        );
+        if (!SignatureChecker.isValidSignatureNow(to, digest, sig))
+            revert InvalidSignature();
+
+        unchecked {
+            nonces[to] = nonce + 1;
+        }
+        // _transfer, not a raw write: the auto-reclaim hook below must fire so
+        // the registry node and its subnames follow the token.
+        _transfer(from, to, tokenId);
+    }
+
+    /// @dev Split out of `approveWithSig` for the same stack reason as
+    ///      `_approveDigest`.
     function _announce(
         address to,
         uint256 tokenId,
@@ -385,9 +456,9 @@ contract BaseRegistrarImplementation is
         );
     }
 
-    /// @dev Split out of `transferWithSig` only to keep that function's stack
+    /// @dev Split out of `approveWithSig` only to keep that function's stack
     ///      within the EVM's 16-slot reach.
-    function _transferDigest(
+    function _approveDigest(
         address from,
         address to,
         uint256 tokenId,
@@ -403,7 +474,7 @@ contract BaseRegistrarImplementation is
                     DOMAIN_SEPARATOR(),
                     keccak256(
                         abi.encode(
-                            TRANSFER_TYPEHASH,
+                            APPROVE_TYPEHASH,
                             from,
                             to,
                             tokenId,

@@ -131,10 +131,11 @@ contract SimplexController is
     error ZeroAddress();
     error NotBeneficiary();
     error NotOwnerOrBeneficiary();
-    error InsufficientAllowance(uint256 required, uint256 available);
     error AlreadyFrozen();
     error Frozen();
     error PublicSalesClosed();
+    error OwnerMustBeCaller();
+    error NotSponsor();
 
     event NameRegistered(
         string label,
@@ -161,12 +162,7 @@ contract SimplexController is
     event NftGateDisabled();
     event PriceOracleChanged(IPriceOracleUSD indexed newOracle);
     event BeneficiaryChanged(address indexed beneficiary);
-    event RegistrarAllowanceSet(address indexed registrar, uint256 allowanceUSD);
-    event RegistrarAllowanceSpent(
-        address indexed registrar,
-        uint256 spentUSD,
-        uint256 remainingUSD
-    );
+    event SponsorChanged(address indexed sponsor);
     event DefaultResolverChanged(address indexed resolver);
     event PublicSalesOpenChanged(bool open);
     event ContractFrozen();
@@ -178,12 +174,6 @@ contract SimplexController is
     ///      re-run on upgrade) reads as not-entered, so the guard is correct
     ///      without a reinitializer; `initialize` seeds it to `_NOT_ENTERED`
     ///      for fresh deploys to get the cheaper steady-state cost.
-    /// @dev The guardian key. Permanent once set: the owner cannot take it back.
-    modifier onlyBeneficiary() {
-        if (msg.sender != beneficiary) revert NotBeneficiary();
-        _;
-    }
-
     /// @dev Restrictive actions are held by the owner and the guardian both, so
     ///      they can be taken immediately rather than waiting on the owner's
     ///      timelock. See docs/plans/names-v2-launch-to-freeze-plan.md.
@@ -272,15 +262,14 @@ contract SimplexController is
         emit BeneficiaryChanged(newBeneficiary);
     }
 
-    /// @notice Replace a registrar's spending limit, in attoUSD. Set, not add:
-    ///         zeroing it is the kill switch for a compromised registrar and must
-    ///         take one transaction.
-    function setRegistrarAllowance(
-        address registrar,
-        uint256 allowanceUSD
-    ) external onlyBeneficiary {
-        registrarAllowance[registrar] = allowanceUSD;
-        emit RegistrarAllowanceSet(registrar, allowanceUSD);
+    /// @notice The contract allowed to call `registerSponsored` and
+    ///         `renewSponsored`. It holds the registrar allowances and checks the
+    ///         owner's consent, so the controller trusts it with both. Fixed by
+    ///         `freeze`, like the implementation.
+    function setSponsor(address newSponsor) external onlyOwner {
+        if (frozen) revert Frozen();
+        sponsor = newSponsor;
+        emit SponsorChanged(newSponsor);
     }
 
     /// @notice The resolver new registrations point at. Only registrations against
@@ -395,7 +384,7 @@ contract SimplexController is
         }
 
         base.registerWithLabel(label, address(this), duration);
-        ens.setRecord(namehash, owner, resolver, 0);
+        ens.setRecord(namehash, address(this), resolver, 0);
         base.transferFrom(address(this), owner, uint256(labelhash));
     }
 
@@ -467,7 +456,7 @@ contract SimplexController is
     }
 
     /// @param checkNft Skipped on the credited path, where `msg.sender` is the
-    ///        registrar rather than the buyer.
+    ///        sponsor rather than the buyer.
     function _checkSimplexGates(
         string calldata label,
         bool checkNft
@@ -480,22 +469,6 @@ contract SimplexController is
             revert NftRequired();
     }
 
-    /// @dev Deduct `amountUSD` from the caller's spending limit. The beneficiary
-    ///      can zero that limit in one transaction, which is the kill switch for a
-    ///      compromised registrar.
-    function _spendAllowance(uint256 amountUSD) private {
-        uint256 available = registrarAllowance[msg.sender];
-        if (amountUSD > available)
-            revert InsufficientAllowance(amountUSD, available);
-        uint256 remaining;
-        unchecked {
-            remaining = available - amountUSD;
-        }
-        registrarAllowance[msg.sender] = remaining;
-        emit RegistrarAllowanceSpent(msg.sender, amountUSD, remaining);
-    }
-
-    /// @dev The list price of `label` for `duration`, in attoUSD.
     /// @dev A re-registered name must not inherit the previous owner's records.
     ///      Nothing clears them on expiry: the registry keeps the node's resolver
     ///      pointer and the resolver keeps its data, so without this a squatter
@@ -518,25 +491,15 @@ contract SimplexController is
         }
     }
 
-    function _rentPriceUSD(
-        string calldata label,
-        bytes32 labelhash,
-        uint256 duration
-    ) private view returns (IPriceOracle.Price memory) {
-        return
-            prices.priceUSD(
-                label,
-                base.nameExpires(uint256(labelhash)),
-                duration
-            );
-    }
-
     /// @notice Register and pay. Gated by the public sales switch; the credited
-    ///         and reserved paths are not.
+    ///         and reserved paths are not. Registers to the caller only: paying
+    ///         for someone else goes through `SimplexSponsor` and their
+    ///         signature.
     function register(
         Registration calldata registration
     ) public payable override nonReentrant {
         if (!publicSalesOpen) revert PublicSalesClosed();
+        if (registration.owner != msg.sender) revert OwnerMustBeCaller();
         _checkSimplexGates(registration.label, true);
 
         bytes32 labelhash = keccak256(bytes(registration.label));
@@ -556,28 +519,28 @@ contract SimplexController is
         }
     }
 
-    /// @notice Register with no value attached, spending one registrar credit.
-    ///         The fee would have gone to the controller and been withdrawn back
-    ///         to the same treasury, so it is removed rather than performed.
-    function registerWithCredit(
+    /// @notice Register with no value attached, on behalf of `SimplexSponsor`,
+    ///         which has already spent the registrar's allowance and checked
+    ///         that the owner agreed. The fee would have gone to the controller
+    ///         and been withdrawn back to the same treasury, so it is removed
+    ///         rather than performed.
+    function registerSponsored(
         Registration calldata registration
     ) external nonReentrant {
+        if (msg.sender != sponsor) revert NotSponsor();
         _checkSimplexGates(registration.label, false);
-
-        bytes32 labelhash = keccak256(bytes(registration.label));
-        IPriceOracle.Price memory usd = _rentPriceUSD(
-            registration.label,
-            labelhash,
-            registration.duration
-        );
-        _spendAllowance(usd.base + usd.premium);
 
         // Zero cost in the event, and no `_rentPrice` call: nothing is paid on
         // this path, so the wei figure would be a quote rather than a payment —
         // and reading it would couple the sponsored flow to the ETH/USD feed,
         // which is the one dependency this path exists without. What was
-        // actually consumed is in `RegistrarAllowanceSpent`, in attoUSD.
-        _registerCore(registration, labelhash, IPriceOracle.Price(0, 0));
+        // actually consumed is in the sponsor's `RegistrarAllowanceSpent`, in
+        // attoUSD.
+        _registerCore(
+            registration,
+            keccak256(bytes(registration.label)),
+            IPriceOracle.Price(0, 0)
+        );
     }
 
     /// @dev Everything both registration paths share: availability, the
@@ -633,7 +596,7 @@ contract SimplexController is
 
             ens.setRecord(
                 namehash,
-                registration.owner,
+                address(this),
                 registration.resolver,
                 0
             );
@@ -679,19 +642,15 @@ contract SimplexController is
         }
     }
 
-    /// @notice Renew with no value attached, spending one registrar credit.
-    function renewWithCredit(
+    /// @notice Renew with no value attached, on behalf of `SimplexSponsor`.
+    function renewSponsored(
         string calldata label,
         uint256 duration,
         bytes32 referrer
     ) external nonReentrant {
-        bytes32 labelhash = keccak256(bytes(label));
-        // Base only, matching the payable `renew`, which charges `price.base`.
-        // The premium is the expired-name auction price and is owed on
-        // re-registration, never on renewing a name you already hold.
-        _spendAllowance(_rentPriceUSD(label, labelhash, duration).base);
-        // zero cost, and no feed read — see `registerWithCredit`
-        _renewCore(label, labelhash, duration, 0, referrer);
+        if (msg.sender != sponsor) revert NotSponsor();
+        // zero cost, and no feed read — see `registerSponsored`
+        _renewCore(label, keccak256(bytes(label)), duration, 0, referrer);
     }
 
     function _renewCore(
@@ -758,14 +717,14 @@ contract SimplexController is
 
     // --- names v2: governance, allowance and pricing. 48 -> 45. ---
     // Slot 1: beneficiary + frozen pack together.
-    /// @dev Guardian key: the registrar allowance, the sales switch, and `withdraw`'s payee.
+    /// @dev Guardian key: the registrar allowance (on the sponsor), the sales
+    ///      switch, and `withdraw`'s payee.
     address public beneficiary;
-    /// @dev One-way. Blocks upgrades and the sales switch; nothing else.
+    /// @dev One-way. Blocks upgrades, the sales switch and the sponsor; nothing else.
     bool public frozen;
-    /// @dev Spending limit per registrar, in attoUSD. A sponsored registration or
-    ///      renewal deducts the name's own list price. Denominated in the unit the
-    ///      price list is configured in, so it does not move with the ETH price.
-    mapping(address => uint256) public registrarAllowance;
+    // Was `registrarAllowance`, which moved to `SimplexSponsor` with the rest of
+    // the sponsored path. The slot is kept so the layout does not shift.
+    mapping(address => uint256) private _unusedRegistrarAllowance;
     // Slot 3: defaultResolver + publicSalesOpen pack together.
     /// @dev The resolver `registerReserved` points a brand's name at.
     address public defaultResolver;
@@ -779,6 +738,8 @@ contract SimplexController is
     ///      was rotated, quietly reopening the stale-record leak for every name
     ///      still pointing at the old one.
     mapping(address => bool) public wasDefaultResolver;
+    /// @dev See `setSponsor`. 44 -> 43.
+    address public sponsor;
 
-    uint256[44] private __gap;
+    uint256[43] private __gap;
 }

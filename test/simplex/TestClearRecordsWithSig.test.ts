@@ -9,6 +9,7 @@ import {
   node,
   registration,
   signIntent,
+  withConsent,
 } from './fixtures/namesV2.js'
 
 const connection = await hre.network.connect()
@@ -28,7 +29,7 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  await f.controller.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
+  await f.sponsor.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
     account: guardian,
   })
   const reg = registration('giftedto', alice.address, {
@@ -38,7 +39,10 @@ async function fixture() {
     [await f.controller.read.makeCommitment([reg])],
     { account: registrar },
   )
-  await f.controller.write.registerWithCredit([reg], { account: registrar })
+  await f.sponsor.write.registerWithCredit(
+    await withConsent(connection, f.sponsor, reg),
+    { account: registrar },
+  )
   return f
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)

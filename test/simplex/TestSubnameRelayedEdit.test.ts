@@ -9,6 +9,7 @@ import {
   node,
   registration,
   signIntent,
+  withConsent,
 } from './fixtures/namesV2.js'
 
 const connection = await hre.network.connect()
@@ -29,7 +30,7 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  await f.controller.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
+  await f.sponsor.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
     account: guardian,
   })
   const reg = registration('twoldname', alice.address, {
@@ -39,7 +40,10 @@ async function fixture() {
     [await f.controller.read.makeCommitment([reg])],
     { account: registrar },
   )
-  await f.controller.write.registerWithCredit([reg], { account: registrar })
+  await f.sponsor.write.registerWithCredit(
+    await withConsent(connection, f.sponsor, reg),
+    { account: registrar },
+  )
   await f.ens.write.setApprovalForAll([f.subnameRegistrar.address, true], {
     account: alice,
   })
@@ -119,9 +123,12 @@ describe('relayed edits reach subnames', () => {
 
   it('follows the 2LD when the token moves, because the subname is soulbound to it', async () => {
     const { resolver, baseRegistrar } = await load()
+    await baseRegistrar.write.approve([bob.address, BigInt(labelhash('twoldname'))], {
+      account: alice,
+    })
     await baseRegistrar.write.transferFrom(
       [alice.address, bob.address, BigInt(labelhash('twoldname'))],
-      { account: alice },
+      { account: bob },
     )
     expect((await resolver.read.relayedSigner([SUB])).toLowerCase()).toBe(
       bob.address.toLowerCase(),

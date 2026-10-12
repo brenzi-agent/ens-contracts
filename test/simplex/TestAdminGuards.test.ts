@@ -7,6 +7,7 @@ import {
   deployNamesV2,
   node,
   registration,
+  withConsent,
 } from './fixtures/namesV2.js'
 
 // Round-3 lows: admin footguns and inputs that were accepted but meaningless.
@@ -28,7 +29,7 @@ async function fixture() {
   })
   // alice needs a name she actually owns, or the parent-owner check fires
   // before the label check we are trying to reach.
-  await f.controller.write.setRegistrarAllowance(
+  await f.sponsor.write.setRegistrarAllowance(
     [registrar.address, AMPLE_ALLOWANCE],
     { account: guardian },
   )
@@ -37,7 +38,10 @@ async function fixture() {
     [await f.controller.read.makeCommitment([reg])],
     { account: registrar },
   )
-  await f.controller.write.registerWithCredit([reg], { account: registrar })
+  await f.sponsor.write.registerWithCredit(
+    await withConsent(connection, f.sponsor, reg),
+    { account: registrar },
+  )
   return f
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
