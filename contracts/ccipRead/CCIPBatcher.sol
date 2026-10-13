@@ -15,6 +15,10 @@ abstract contract CCIPBatcher is CCIPReader {
     /// @dev Error selector: `0x4a5c31ea`
     error InvalidBatchGatewayResponse();
 
+    /// @notice A batch gateway lookup failed with an unexpected selector.
+    /// @dev Error selector: `0x2fa87250`
+    error UnsafeBatchGatewayResponse(bytes);
+
     uint256 constant FLAG_OFFCHAIN = 1 << 0; // the lookup reverted `OffchainLookup`
     uint256 constant FLAG_CALL_ERROR = 1 << 1; // the initial call or callback reverted
     uint256 constant FLAG_BATCH_ERROR = 1 << 2; // `OffchainLookup` failed on the batch gateway
@@ -157,6 +161,12 @@ abstract contract CCIPBatcher is CCIPReader {
                     bytes memory v = responses[expected];
                     if (failures[expected]) {
                         lu.flags |= FLAG_DONE | FLAG_BATCH_ERROR;
+                        if (!_isSafeBatchGatewayError(bytes4(v))) {
+                            v = abi.encodeWithSelector(
+                                UnsafeBatchGatewayResponse.selector,
+                                v
+                            ); // wrap unless safe
+                        }
                     } else {
                         EIP3668.Params memory p = decodeOffchainLookup(lu.data);
                         bool ok;
@@ -192,12 +202,25 @@ abstract contract CCIPBatcher is CCIPReader {
         _revertBatchGateway(batch);
     }
 
+    /// @dev Determine if the batch gateway error is safe to propagate.
+    ///      Note: `error OffchainLookup` should *NEVER* be considered safe.
+    function _isSafeBatchGatewayError(
+        bytes4 selector
+    ) internal view virtual returns (bool) {
+        return
+            selector == IBatchGateway.HttpError.selector ||
+            selector == 0x08c379a0; // Error(string)
+    }
+
     /// @dev Safely collapse `Lookup[]` into `bytes[]`.
     ///      If `FLAGS_ANY_ERROR` and response is non-empty, the response is zero-padded so that `length % 32 == 4`.
     /// @param lookups Array of completed lookups.
     /// @param wrapped If `true`, successful responses are unwrapped as `bytes`.
     /// @return arr Array of call responses.
-    function _toResponseArray(Lookup[] memory lookups, bool wrapped) internal pure returns (bytes[] memory arr) {
+    function _toResponseArray(
+        Lookup[] memory lookups,
+        bool wrapped
+    ) internal pure returns (bytes[] memory arr) {
         arr = new bytes[](lookups.length);
         for (uint256 i; i < lookups.length; ++i) {
             Lookup memory lu = lookups[i];
@@ -207,10 +230,13 @@ abstract contract CCIPBatcher is CCIPReader {
                     v = abi.decode(v, (bytes));
                 }
             } else if (v.length != 0) {
-                uint256 rem = v.length & 31;
-                if (rem != 4) {
-                    bytes memory pad = new bytes(rem < 4 ? 4 - rem : rem - 4);
-                    v = abi.encodePacked(v, pad); 
+                // force pad error response to length mod 32 == 4
+                // prevents unverified data from passing as valid response
+                unchecked {
+                    uint256 pad = (4 - v.length) & 31;
+                    if (pad > 0) {
+                        v = abi.encodePacked(v, new bytes(pad));
+                    }
                 }
             }
             arr[i] = v;
