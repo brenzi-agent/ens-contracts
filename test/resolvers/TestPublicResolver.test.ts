@@ -1468,7 +1468,11 @@ describe('PublicResolver', () => {
         [accounts[2].address, true],
         { account: accounts[1] },
       )
-      await ensRegistry.write.setOwner([targetNode, accounts[1].address])
+      await ensRegistry.write.setSubnodeOwner([
+        zeroHash,
+        labelhash('eth'),
+        accounts[1].address,
+      ])
 
       await publicResolver.write.setAddr([targetNode, accounts[0].address], {
         account: accounts[2],
@@ -1527,9 +1531,10 @@ describe('PublicResolver', () => {
         }),
       ).toBeRevertedWithoutReason()
 
-      await ensRegistry.write.setOwner([targetNode, nameWrapper.address], {
-        account: owner,
-      })
+      await ensRegistry.write.setSubnodeOwner(
+        [zeroHash, labelhash('eth'), nameWrapper.address],
+        { account: owner },
+      )
 
       await publicResolver.write.setAddr([targetNode, owner.address], {
         account: operator,
@@ -1633,7 +1638,11 @@ describe('PublicResolver', () => {
         [targetNode, accounts[2].address, true],
         { account: accounts[1] },
       )
-      await ensRegistry.write.setOwner([targetNode, accounts[1].address])
+      await ensRegistry.write.setSubnodeOwner([
+        zeroHash,
+        labelhash('eth'),
+        accounts[1].address,
+      ])
 
       await publicResolver.write.setAddr([targetNode, accounts[0].address], {
         account: accounts[2],

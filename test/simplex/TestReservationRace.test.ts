@@ -7,6 +7,7 @@ import {
   deployNamesV2,
   MIN_REGISTRATION,
   registration,
+  signRegistration,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
 
@@ -60,11 +61,15 @@ async function fixture() {
   await f.baseRegistrar.write.addController([controller.address])
   await controller.write.setBeneficiary([guardian.address], { account: owner })
   await controller.write.setPublicSalesOpen([true], { account: owner })
-  await controller.write.setRegistrarAllowance(
+  const sponsor = await connection.viem.deployContract('SimplexSponsor', [
+    controller.address,
+  ])
+  await controller.write.setSponsor([sponsor.address], { account: owner })
+  await sponsor.write.setRegistrarAllowance(
     [registrar.address, AMPLE_ALLOWANCE],
     { account: guardian },
   )
-  return { ...f, controller }
+  return { ...f, controller, sponsor }
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
@@ -141,15 +146,18 @@ describe('reservation vs. registration race', () => {
   })
 
   it('the sponsored path is bound by the same commitment age', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     const reg = registration('sponsored', squatter.address)
     await controller.write.commit(
       [await controller.read.makeCommitment([reg])],
       { account: registrar },
     )
     await expect(
-      controller.write.registerWithCredit([reg], { account: registrar }),
-    ).toBeRevertedWithCustomError('CommitmentTooNew')
+      sponsor.write.registerWithCredit(
+        await signRegistration(connection, sponsor, reg),
+        { account: registrar },
+      ),
+    ).toBeRevertedWithCustomErrorFrom(controller, 'CommitmentTooNew')
   })
 
   it('registerReserved needs no commitment, so the owner is never in the race', async () => {

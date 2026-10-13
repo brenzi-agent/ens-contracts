@@ -131,9 +131,11 @@ describe('SubnameRegistrar (soulbound)', () => {
 
       // simulate an NFT transfer: BaseRegistrar auto-reclaim re-points the 2LD
       // node to the new holder.
-      await ensRegistry.write.setOwner([ALICE_NODE, bobAccount.address], {
-        account: aliceAccount,
-      })
+      await ensRegistry.write.setSubnodeOwner([
+        namehash('testing'),
+        labelhash('alice'),
+        bobAccount.address,
+      ])
 
       // the subname moved with it, no re-seize
       expect(await subnames.read.ownerOf([BigInt(node)])).toBe(
@@ -168,9 +170,11 @@ describe('SubnameRegistrar (soulbound)', () => {
       ).rejects.toThrow()
 
       // after the 2LD moves to bob, bob can and alice cannot
-      await ensRegistry.write.setOwner([ALICE_NODE, bobAccount.address], {
-        account: aliceAccount,
-      })
+      await ensRegistry.write.setSubnodeOwner([
+        namehash('testing'),
+        labelhash('alice'),
+        bobAccount.address,
+      ])
       await resolver.write.setText([node, 'simplex.contact', 'smp://bob'], {
         account: bobAccount,
       })
@@ -204,9 +208,11 @@ describe('SubnameRegistrar (soulbound)', () => {
         getAddress(aliceAccount.address),
       )
       // the whole tree follows the NFT
-      await ensRegistry.write.setOwner([ALICE_NODE, bobAccount.address], {
-        account: aliceAccount,
-      })
+      await ensRegistry.write.setSubnodeOwner([
+        namehash('testing'),
+        labelhash('alice'),
+        bobAccount.address,
+      ])
       expect(await subnames.read.ownerOf([BigInt(deepNode)])).toBe(
         getAddress(bobAccount.address),
       )

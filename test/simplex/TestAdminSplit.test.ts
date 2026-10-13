@@ -80,12 +80,15 @@ describe('admin split', () => {
       ).toBeRevertedWithString(OWNABLE)
     })
 
-    it('setDefaultResolver, setMinCharLength, setPriceOracle, freeze', async () => {
+    it('setDefaultResolver, setSponsor, setMinCharLength, setPriceOracle, freeze', async () => {
       const { controller, dummyOracle } = await load()
       await expect(
         controller.write.setDefaultResolver([alice.address], {
           account: guardian,
         }),
+      ).toBeRevertedWithString(OWNABLE)
+      await expect(
+        controller.write.setSponsor([alice.address], { account: guardian }),
       ).toBeRevertedWithString(OWNABLE)
       await expect(
         controller.write.setMinCharLength([5], { account: guardian }),
@@ -107,9 +110,9 @@ describe('admin split', () => {
 
   describe('guardian only, owner rejected', () => {
     it('setRegistrarAllowance and setBeneficiary', async () => {
-      const { controller } = await load()
+      const { controller, sponsor } = await load()
       await expect(
-        controller.write.setRegistrarAllowance([alice.address, 1n], {
+        sponsor.write.setRegistrarAllowance([alice.address, 1n], {
           account: owner,
         }),
       ).toBeRevertedWithCustomError('NotBeneficiary')
@@ -117,10 +120,10 @@ describe('admin split', () => {
         controller.write.setBeneficiary([alice.address], { account: owner }),
       ).toBeRevertedWithCustomError('NotBeneficiary')
 
-      await controller.write.setRegistrarAllowance([alice.address, 1n], {
+      await sponsor.write.setRegistrarAllowance([alice.address, 1n], {
         account: guardian,
       })
-      expect(await controller.read.registrarAllowance([alice.address])).toBe(1n)
+      expect(await sponsor.read.registrarAllowance([alice.address])).toBe(1n)
     })
   })
 })

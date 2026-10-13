@@ -6,6 +6,7 @@ import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
   node,
+  registerWithCredit,
   registration,
 } from './fixtures/namesV2.js'
 
@@ -28,7 +29,7 @@ async function fixture() {
   })
   // alice needs a name she actually owns, or the parent-owner check fires
   // before the label check we are trying to reach.
-  await f.controller.write.setRegistrarAllowance(
+  await f.sponsor.write.setRegistrarAllowance(
     [registrar.address, AMPLE_ALLOWANCE],
     { account: guardian },
   )
@@ -37,7 +38,7 @@ async function fixture() {
     [await f.controller.read.makeCommitment([reg])],
     { account: registrar },
   )
-  await f.controller.write.registerWithCredit([reg], { account: registrar })
+  await registerWithCredit(connection, f.sponsor, reg, { account: registrar })
   return f
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)

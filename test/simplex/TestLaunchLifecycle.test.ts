@@ -14,7 +14,9 @@ import {
   MIN_REGISTRATION,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
+  registerWithCredit,
   signIntent,
+  signRegistration,
   YEAR,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
@@ -78,6 +80,7 @@ let subnameRegistrar: any
 let renderer: any
 let dummyOracle: any
 let priceOracle: any
+let sponsor: any
 
 const OWNABLE = 'Ownable: caller is not the owner'
 
@@ -90,7 +93,7 @@ async function commitAndRegister(
     account,
   })
   return opts.credit
-    ? controller.write.registerWithCredit([reg], { account })
+    ? registerWithCredit(connection, sponsor, reg, { account })
     : controller.write.register([reg], { account, value: opts.value ?? 0n })
 }
 
@@ -163,6 +166,7 @@ describe('launch lifecycle', () => {
         zeroAddress,
       ])
       await subnameRegistrar.write.setResolver([resolver.address])
+      sponsor = await viem.deployContract('SimplexSponsor', [controller.address])
     })
 
     it('gives the TLD to the registrar through Root', async () => {
@@ -180,12 +184,13 @@ describe('launch lifecycle', () => {
       )
     })
 
-    it('wires the registrar, resolver and renderer', async () => {
+    it('wires the registrar, resolver, renderer and sponsor', async () => {
       await baseRegistrar.write.addController([controller.address])
       await baseRegistrar.write.setMetadataRenderer([renderer.address])
       await baseRegistrar.write.setMaxLabelLength([63n])
       await baseRegistrar.write.setSubnameHook([subnameRegistrar.address])
       await controller.write.setDefaultResolver([resolver.address])
+      await controller.write.setSponsor([sponsor.address])
 
       expect(await baseRegistrar.read.maxLabelLength()).toBe(63n)
       expect((await baseRegistrar.read.subnameHook()).toLowerCase()).toBe(
@@ -193,6 +198,12 @@ describe('launch lifecycle', () => {
       )
       expect((await controller.read.defaultResolver()).toLowerCase()).toBe(
         resolver.address.toLowerCase(),
+      )
+      expect((await controller.read.sponsor()).toLowerCase()).toBe(
+        sponsor.address.toLowerCase(),
+      )
+      expect((await sponsor.read.controller()).toLowerCase()).toBe(
+        controller.address.toLowerCase(),
       )
     })
 
@@ -312,7 +323,10 @@ describe('launch lifecycle', () => {
         { account: deployKey },
       )
       await expect(
-        controller.write.registerWithCredit([reg], { account: deployKey }),
+        sponsor.write.registerWithCredit(
+          await signRegistration(connection, sponsor, reg),
+          { account: deployKey },
+        ),
       ).toBeRevertedWithCustomError('InsufficientAllowance')
     })
   })
@@ -320,16 +334,16 @@ describe('launch lifecycle', () => {
   describe('4. the guardian funds the registrar', () => {
     it('grants a $100,000 allowance, and only the guardian can', async () => {
       await expect(
-        controller.write.setRegistrarAllowance([registrar.address, ALLOWANCE], {
+        sponsor.write.setRegistrarAllowance([registrar.address, ALLOWANCE], {
           account: admin,
         }),
       ).toBeRevertedWithCustomError('NotBeneficiary')
 
-      await controller.write.setRegistrarAllowance(
+      await sponsor.write.setRegistrarAllowance(
         [registrar.address, ALLOWANCE],
         { account: guardian },
       )
-      expect(await controller.read.registrarAllowance([registrar.address])).toBe(
+      expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
         ALLOWANCE,
       )
     })
@@ -351,7 +365,7 @@ describe('launch lifecycle', () => {
     })
 
     it('the registrar registers names for users who hold no ETH', async () => {
-      const before = await controller.read.registrarAllowance([
+      const before = await sponsor.read.registrarAllowance([
         registrar.address,
       ])
       for (const [label, owner] of [
@@ -371,7 +385,7 @@ describe('launch lifecycle', () => {
         ).toBe(owner.toLowerCase())
       }
       const spent =
-        before - (await controller.read.registrarAllowance([registrar.address]))
+        before - (await sponsor.read.registrarAllowance([registrar.address]))
       expect(spent).toBe(3n * yearPriceUSD(6, 2n))
     })
 
@@ -405,8 +419,11 @@ describe('launch lifecycle', () => {
         { account: registrar },
       )
       await expect(
-        controller.write.registerWithCredit([short], { account: registrar }),
-      ).toBeRevertedWithCustomError('NameTooShort')
+        sponsor.write.registerWithCredit(
+          await signRegistration(connection, sponsor, short),
+          { account: registrar },
+        ),
+      ).toBeRevertedWithCustomErrorFrom(controller, 'NameTooShort')
 
       const reserved = registration('brand0001', alice.address)
       await controller.write.commit(
@@ -414,8 +431,11 @@ describe('launch lifecycle', () => {
         { account: registrar },
       )
       await expect(
-        controller.write.registerWithCredit([reserved], { account: registrar }),
-      ).toBeRevertedWithCustomError('NameReserved')
+        sponsor.write.registerWithCredit(
+          await signRegistration(connection, sponsor, reserved),
+          { account: registrar },
+        ),
+      ).toBeRevertedWithCustomErrorFrom(controller, 'NameReserved')
     })
   })
 
@@ -482,16 +502,16 @@ describe('launch lifecycle', () => {
     it('renews on her behalf', async () => {
       const tokenId = BigInt(labelhash(OWNED))
       const before = await baseRegistrar.read.nameExpires([tokenId])
-      const allowanceBefore = await controller.read.registrarAllowance([
+      const allowanceBefore = await sponsor.read.registrarAllowance([
         registrar.address,
       ])
-      await controller.write.renewWithCredit([OWNED, YEAR, zeroHash], {
+      await sponsor.write.renewWithCredit([OWNED, YEAR, zeroHash], {
         account: registrar,
       })
       expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)
       expect(
         allowanceBefore -
-          (await controller.read.registrarAllowance([registrar.address])),
+          (await sponsor.read.registrarAllowance([registrar.address])),
       ).toBe(yearPriceUSD(6))
       // renewal grants credits too
     })
@@ -616,7 +636,7 @@ describe('launch lifecycle', () => {
       ).toBe(0n)
     })
 
-    it('relays a gift with a stealth announcement, and the recipient can then act', async () => {
+    it('relays a gift offer with a stealth announcement and the claim, and the recipient can then act', async () => {
       const tokenId = BigInt(labelhash(OWNED))
       const m = {
         from: alice.address,
@@ -627,7 +647,7 @@ describe('launch lifecycle', () => {
         nonce: 0n,
         deadline: FAR_FUTURE,
       }
-      await baseRegistrar.write.transferWithSig(
+      await baseRegistrar.write.approveWithSig(
         [
           m.from,
           m.to,
@@ -639,11 +659,43 @@ describe('launch lifecycle', () => {
             aliceClient,
             'SimplexNames',
             baseRegistrar.address,
-            'TransferName',
+            'ApproveName',
             m,
           ),
           m.ephemeralPubKey,
           m.viewTag,
+        ],
+        { account: registrar },
+      )
+      // an offer moves nothing until the recipient takes it
+      expect(
+        (await baseRegistrar.read.ownerOf([tokenId])).toLowerCase(),
+      ).toBe(alice.address.toLowerCase())
+
+      const c = {
+        from: alice.address,
+        to: bob.address,
+        tokenId,
+        offer: await baseRegistrar.read.offers([tokenId]),
+        nonce: 0n,
+        deadline: FAR_FUTURE,
+      }
+      await baseRegistrar.write.claimWithSig(
+        [
+          c.from,
+          c.to,
+          c.tokenId,
+          c.offer,
+          c.nonce,
+          c.deadline,
+          await signIntent(
+            publicClient,
+            bobClient,
+            'SimplexNames',
+            baseRegistrar.address,
+            'ClaimName',
+            c,
+          ),
         ],
         { account: registrar },
       )
@@ -765,8 +817,6 @@ describe('launch lifecycle', () => {
           await baseRegistrar.read.ownerOf([BigInt(labelhash('freshname'))])
         ).toLowerCase(),
       ).toBe(buyer.address.toLowerCase())
-      // the payable path spends no allowance
-      expect(await controller.read.registrarAllowance([buyer.address])).toBe(0n)
     })
 
     it('a released name is now buyable, a reserved one still is not', async () => {
@@ -858,7 +908,7 @@ describe('launch lifecycle', () => {
       ).toBeRevertedWithCustomError('AlreadyFrozen')
     })
 
-    it('the implementation is permanent', async () => {
+    it('the implementation and the sponsor are permanent', async () => {
       const next = await connection.viem.deployContract('SimplexController', [])
       await expect(
         controller.write.upgradeTo([next.address], { account: admin }),
@@ -867,6 +917,9 @@ describe('launch lifecycle', () => {
         controller.write.upgradeToAndCall([next.address, '0x'], {
           account: admin,
         }),
+      ).toBeRevertedWithCustomError('Frozen')
+      await expect(
+        controller.write.setSponsor([next.address], { account: admin }),
       ).toBeRevertedWithCustomError('Frozen')
     })
 
@@ -907,13 +960,13 @@ describe('launch lifecycle', () => {
     })
 
     it('the guardian keeps funding and defunding', async () => {
-      await controller.write.setRegistrarAllowance([registrar.address, 0n], {
+      await sponsor.write.setRegistrarAllowance([registrar.address, 0n], {
         account: guardian,
       })
-      expect(await controller.read.registrarAllowance([registrar.address])).toBe(
+      expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
         0n,
       )
-      await controller.write.setRegistrarAllowance(
+      await sponsor.write.setRegistrarAllowance(
         [registrar.address, ALLOWANCE],
         { account: guardian },
       )

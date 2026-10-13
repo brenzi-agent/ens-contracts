@@ -105,9 +105,12 @@ describe('BaseRegistrarImplementation v3', () => {
       const { baseRegistrar } = await loadFixture()
       await registerLabel(baseRegistrar, 'alice', registrantAccount.address)
       const id = BigInt(labelhash('alice'))
+      await baseRegistrar.write.approve([otherAccount.address, id], {
+        account: registrantAccount,
+      })
       await baseRegistrar.write.transferFrom(
         [registrantAccount.address, otherAccount.address, id],
-        { account: registrantAccount },
+        { account: otherAccount },
       )
       expect(
         await baseRegistrar.read.balanceOf([registrantAccount.address]),
@@ -260,13 +263,17 @@ describe('BaseRegistrarImplementation v3', () => {
       expect(await ensRegistry.read.owner([node])).toBe(
         getAddress(registrantAccount.address),
       )
+      await baseRegistrar.write.approve(
+        [otherAccount.address, BigInt(labelhash('alice'))],
+        { account: registrantAccount },
+      )
       await baseRegistrar.write.transferFrom(
         [
           registrantAccount.address,
           otherAccount.address,
           BigInt(labelhash('alice')),
         ],
-        { account: registrantAccount },
+        { account: otherAccount },
       )
       // the registry "manager" followed the NFT — no separate reclaim
       expect(await ensRegistry.read.owner([node])).toBe(

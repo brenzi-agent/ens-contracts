@@ -5,7 +5,9 @@ import { describe, expect, it } from 'vitest'
 import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
+  registerWithCredit,
   registration,
+  sponsorOf,
   YEAR,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
@@ -24,7 +26,7 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  await f.controller.write.setRegistrarAllowance(
+  await f.sponsor.write.setRegistrarAllowance(
     [registrar.address, AMPLE_ALLOWANCE],
     { account: guardian },
   )
@@ -38,7 +40,8 @@ async function sponsoredRegister(controller: any, label: string) {
   await controller.write.commit([await controller.read.makeCommitment([reg])], {
     account: registrar,
   })
-  return controller.write.registerWithCredit([reg], { account: registrar })
+  const sponsor = await sponsorOf(connection, controller)
+  return registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
 
 /**
@@ -49,7 +52,7 @@ async function sponsoredRegister(controller: any, label: string) {
  */
 describe('the sponsored path does not depend on the price feed', () => {
   it('registers and renews with the feed reporting zero', async () => {
-    const { controller, baseRegistrar, dummyOracle } = await load()
+    const { controller, baseRegistrar, dummyOracle, sponsor } = await load()
     await dummyOracle.write.set([0n])
 
     await sponsoredRegister(controller, 'deadfeed')
@@ -61,19 +64,19 @@ describe('the sponsored path does not depend on the price feed', () => {
 
     const tokenId = BigInt(labelhash('deadfeed'))
     const before = await baseRegistrar.read.nameExpires([tokenId])
-    await controller.write.renewWithCredit(['deadfeed', YEAR, zeroHash], {
+    await sponsor.write.renewWithCredit(['deadfeed', YEAR, zeroHash], {
       account: registrar,
     })
     expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)
   })
 
   it('still deducts the correct price in attoUSD while the feed is dead', async () => {
-    const { controller, dummyOracle } = await load()
+    const { controller, dummyOracle, sponsor } = await load()
     await dummyOracle.write.set([0n])
-    const before = await controller.read.registrarAllowance([registrar.address])
+    const before = await sponsor.read.registrarAllowance([registrar.address])
     await sponsoredRegister(controller, 'stillpriced')
     expect(
-      before - (await controller.read.registrarAllowance([registrar.address])),
+      before - (await sponsor.read.registrarAllowance([registrar.address])),
     ).toBe(yearPriceUSD(11, 2n))
   })
 
@@ -93,7 +96,7 @@ describe('the sponsored path does not depend on the price feed', () => {
   })
 
   it('credited registration emits a zero cost — nothing was paid on-chain', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     const hash = await sponsoredRegister(controller, 'zerocost')
     const receipt = await publicClient.getTransactionReceipt({ hash })
 
@@ -107,7 +110,7 @@ describe('the sponsored path does not depend on the price feed', () => {
 
     // and the truth of what was consumed is in the allowance event, in attoUSD
     const spent = parseEventLogs({
-      abi: controller.abi,
+      abi: sponsor.abi,
       eventName: 'RegistrarAllowanceSpent',
       logs: receipt.logs,
     })
@@ -115,9 +118,9 @@ describe('the sponsored path does not depend on the price feed', () => {
   })
 
   it('credited renewal emits a zero cost too', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     await sponsoredRegister(controller, 'renewevent')
-    const hash = await controller.write.renewWithCredit(
+    const hash = await sponsor.write.renewWithCredit(
       ['renewevent', YEAR, zeroHash],
       { account: registrar },
     )

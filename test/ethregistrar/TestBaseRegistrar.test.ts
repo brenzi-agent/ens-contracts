@@ -210,7 +210,7 @@ describe('BaseRegistrar', () => {
 
     await expect(
       baseRegistrar.write.transferFrom(
-        [registrantAccount.address, otherAccount.address, toLabelId('newname')],
+        [registrantAccount.address, registrantAccount.address, toLabelId('newname')],
         {
           account: registrantAccount,
         },

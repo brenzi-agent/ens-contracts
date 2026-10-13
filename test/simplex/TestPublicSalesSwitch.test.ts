@@ -6,7 +6,9 @@ import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
   MIN_REGISTRATION,
+  registerWithCredit,
   registration,
+  sponsorOf,
   YEAR,
   YEAR_PRICE_USD,
 } from './fixtures/namesV2.js'
@@ -27,7 +29,7 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  await f.controller.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
+  await f.sponsor.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
     account: guardian,
   })
   return f
@@ -50,7 +52,8 @@ async function creditedRegister(controller: any, label: string) {
   await controller.write.commit([await controller.read.makeCommitment([reg])], {
     account: registrar,
   })
-  return controller.write.registerWithCredit([reg], { account: registrar })
+  const sponsor = await sponsorOf(connection, controller)
+  return registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
 
 describe('public sales switch', () => {
@@ -93,11 +96,11 @@ describe('public sales switch', () => {
   })
 
   it('renewal is exempt in both forms, so a pause never costs anyone a name', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     await creditedRegister(controller, 'renewany')
     expect(await controller.read.publicSalesOpen()).toBe(false)
 
-    await controller.write.renewWithCredit(['renewany', YEAR, zeroHash], {
+    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash], {
       account: registrar,
     })
     await controller.write.renew(['renewany', YEAR, zeroHash], {

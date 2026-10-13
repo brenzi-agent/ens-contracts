@@ -34,9 +34,16 @@ contract ENSRegistry is ENS {
     ///      approvals cannot be reordered.
     mapping(address => uint256) public nonces;
 
+    /// SNRC: a node's new owner must be the caller or zero, except for the root
+    /// node and for subnodes of the root or of a TLD, which the root's owner and
+    /// the TLD's owner assign. `setSubnodeOwner` records a node as a TLD when
+    /// its parent is the root.
+    mapping(bytes32 => bool) public isTld;
+
     error SignatureExpired();
     error InvalidNonce();
     error InvalidSignature();
+    error OwnerMustBeCaller();
 
     // Permits modifications only by the owner of the specified node.
     modifier authorised(bytes32 node) {
@@ -89,6 +96,8 @@ contract ENSRegistry is ENS {
         bytes32 node,
         address owner
     ) public virtual override authorised(node) {
+        if (owner != msg.sender && owner != address(0) && node != bytes32(0))
+            revert OwnerMustBeCaller();
         _setOwner(node, owner);
         emit Transfer(node, owner);
     }
@@ -103,6 +112,9 @@ contract ENSRegistry is ENS {
         address owner
     ) public virtual override authorised(node) returns (bytes32) {
         bytes32 subnode = keccak256(abi.encodePacked(node, label));
+        if (node == bytes32(0)) isTld[subnode] = true;
+        else if (owner != msg.sender && owner != address(0) && !isTld[node])
+            revert OwnerMustBeCaller();
         _setOwner(subnode, owner);
         emit NewOwner(node, label, owner);
         return subnode;

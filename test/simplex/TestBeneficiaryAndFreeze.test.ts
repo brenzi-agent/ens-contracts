@@ -2,7 +2,7 @@ import hre from 'hardhat'
 import { encodeFunctionData, parseEther, zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { AMPLE_ALLOWANCE, deployNamesV2, MIN_REGISTRATION, registration, YEAR } from './fixtures/namesV2.js'
+import { AMPLE_ALLOWANCE, deployNamesV2, MIN_REGISTRATION, registerWithCredit, registration, YEAR } from './fixtures/namesV2.js'
 
 const TRADEMARK = 2 // SimplexController.Reason.Trademark
 
@@ -21,7 +21,7 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  await f.controller.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
+  await f.sponsor.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
     account: guardian,
   })
   // `freeze` refuses while sales are closed, so every freeze test opens them first
@@ -89,6 +89,23 @@ describe('freeze', () => {
     ).toBeRevertedWithCustomError('Frozen')
   })
 
+  it('fixes the sponsor, like the implementation', async () => {
+    const { controller } = await load()
+    await controller.write.setSponsor([alice.address], { account: owner })
+    await controller.write.freeze({ account: owner })
+    await expect(
+      controller.write.setSponsor([owner.address], { account: owner }),
+    ).toBeRevertedWithCustomError('Frozen')
+  })
+
+  it('refuses while no sponsor is set, so it cannot seal the sponsored path shut', async () => {
+    const { controller } = await load()
+    await controller.write.setSponsor([zeroAddress], { account: owner })
+    await expect(
+      controller.write.freeze({ account: owner }),
+    ).toBeRevertedWithCustomError('ZeroAddress')
+  })
+
   it('an upgrade succeeds before the freeze, so the block is the freeze and not the proxy', async () => {
     const { controller } = await load()
     const next = await connection.viem.deployContract('SimplexController', [])
@@ -110,7 +127,7 @@ describe('freeze', () => {
   })
 
   it('the guardian pausing mid-timelock makes a queued freeze fail safe', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     // the owner's freeze is queued behind a timelock; before it executes the
     // guardian pauses to answer an incident on the payable path
     await controller.write.setPublicSalesOpen([false], { account: guardian })
@@ -119,7 +136,7 @@ describe('freeze', () => {
       controller.write.freeze({ account: owner }),
     ).toBeRevertedWithCustomError('PublicSalesClosed')
     // and everything else still works
-    await controller.write.setRegistrarAllowance([registrar.address, 1n], {
+    await sponsor.write.setRegistrarAllowance([registrar.address, 1n], {
       account: guardian,
     })
   })
@@ -172,13 +189,13 @@ describe('freeze', () => {
   })
 
   it('leaves the guardian powers working too', async () => {
-    const { controller } = await load()
+    const { controller, sponsor } = await load()
     await controller.write.freeze({ account: owner })
-    await controller.write.setRegistrarAllowance(
+    await sponsor.write.setRegistrarAllowance(
       [registrar.address, 5n * 10n ** 18n],
       { account: guardian },
     )
-    expect(await controller.read.registrarAllowance([registrar.address])).toBe(
+    expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
       5n * 10n ** 18n,
     )
     await controller.write.setBeneficiary([alice.address], {
@@ -187,7 +204,7 @@ describe('freeze', () => {
   })
 
   it('leaves the sponsored path working end to end', async () => {
-    const { controller, resolver } = await load()
+    const { controller, resolver, sponsor } = await load()
     await controller.write.freeze({ account: owner })
 
     const reg = registration('afterfreeze', alice.address, {
@@ -197,8 +214,8 @@ describe('freeze', () => {
       [await controller.read.makeCommitment([reg])],
       { account: registrar },
     )
-    await controller.write.registerWithCredit([reg], { account: registrar })
-    await controller.write.renewWithCredit(['afterfreeze', YEAR, zeroHash], {
+    await registerWithCredit(connection, sponsor, reg, { account: registrar })
+    await sponsor.write.renewWithCredit(['afterfreeze', YEAR, zeroHash], {
       account: registrar,
     })
   })

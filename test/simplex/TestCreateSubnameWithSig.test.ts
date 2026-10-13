@@ -7,6 +7,7 @@ import {
   deployNamesV2,
   FAR_FUTURE,
   node,
+  registerWithCredit,
   registration,
   signIntent,
 } from './fixtures/namesV2.js'
@@ -30,7 +31,7 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  await f.controller.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
+  await f.sponsor.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
     account: guardian,
   })
   const reg = registration('alicehas', alice.address, {
@@ -40,7 +41,7 @@ async function fixture() {
     [await f.controller.read.makeCommitment([reg])],
     { account: registrar },
   )
-  await f.controller.write.registerWithCredit([reg], { account: registrar })
+  await registerWithCredit(connection, f.sponsor, reg, { account: registrar })
   return f
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)

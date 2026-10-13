@@ -7,7 +7,9 @@ import {
   deployNamesV2,
   MIN_REGISTRATION,
   node,
+  registerWithCredit,
   registration,
+  sponsorOf,
   YEAR,
 } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
@@ -31,7 +33,7 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  await f.controller.write.setRegistrarAllowance(
+  await f.sponsor.write.setRegistrarAllowance(
     [registrar.address, AMPLE_ALLOWANCE],
     { account: guardian },
   )
@@ -45,7 +47,8 @@ async function sponsoredRegister(controller: any, label: string, to: `0x${string
   await controller.write.commit([await controller.read.makeCommitment([reg])], {
     account: registrar,
   })
-  await controller.write.registerWithCredit([reg], { account: registrar })
+  const sponsor = await sponsorOf(connection, controller)
+  await registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
 
 /**
@@ -133,7 +136,7 @@ describe('records do not survive re-registration', () => {
   })
 
   it('does not wipe the records the new registration itself sets', async () => {
-    const { controller, resolver } = await load()
+    const { controller, resolver, sponsor } = await load()
     await sponsoredRegister(controller, 'withdata', squatter.address, resolver.address)
     await resolver.write.setText([node('withdata'), KEY, 'https://smp/old'], {
       account: squatter,
@@ -155,7 +158,7 @@ describe('records do not survive re-registration', () => {
       [await controller.read.makeCommitment([reg])],
       { account: registrar },
     )
-    await controller.write.registerWithCredit([reg], { account: registrar })
+    await registerWithCredit(connection, sponsor, reg, { account: registrar })
 
     // the clear runs before the new records are written, so the new value stands
     expect(await resolver.read.text([node('withdata'), KEY])).toBe(
@@ -215,7 +218,7 @@ describe('records do not survive re-registration', () => {
 /** Review fixes L1–L3: pricing and availability semantics. */
 describe('renewal and availability semantics', () => {
   it('a renewal never owes the expired-name premium', async () => {
-    const { controller, dummyOracle } = await load()
+    const { controller, dummyOracle, sponsor } = await load()
     // a premium oracle: startPremium high, so a recently-expired name carries one
     const premiumOracle = await connection.viem.deployContract(
       'ExponentialPremiumPriceOracle',
@@ -235,12 +238,12 @@ describe('renewal and availability semantics', () => {
     // renewal must not
     await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + 1n))
 
-    const before = await controller.read.registrarAllowance([registrar.address])
-    await controller.write.renewWithCredit(['renewprem', YEAR, zeroHash], {
+    const before = await sponsor.read.registrarAllowance([registrar.address])
+    await sponsor.write.renewWithCredit(['renewprem', YEAR, zeroHash], {
       account: registrar,
     })
     const spent =
-      before - (await controller.read.registrarAllowance([registrar.address]))
+      before - (await sponsor.read.registrarAllowance([registrar.address]))
 
     const quote = await premiumOracle.read.priceUSD([
       'renewprem',

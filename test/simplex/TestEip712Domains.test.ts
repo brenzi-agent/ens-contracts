@@ -39,7 +39,8 @@ const expected = (name: string, verifyingContract: `0x${string}`, chainId: numbe
  */
 describe('EIP-712 domains', () => {
   it('are distinct per contract and match the off-chain computation', async () => {
-    const { ens, resolver, subnameRegistrar, baseRegistrar } = await load()
+    const { ens, resolver, subnameRegistrar, baseRegistrar, sponsor } =
+      await load()
     const chainId = await publicClient.getChainId()
 
     const domains = [
@@ -47,6 +48,7 @@ describe('EIP-712 domains', () => {
       ['SimplexResolver', resolver],
       ['SimplexSubnames', subnameRegistrar],
       ['SimplexNames', baseRegistrar],
+      ['SimplexSponsor', sponsor],
     ] as const
 
     const seen = new Set<string>()

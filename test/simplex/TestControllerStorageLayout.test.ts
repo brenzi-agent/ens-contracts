@@ -90,7 +90,7 @@ describe('controller storage layout', () => {
       await snapshot(controller.address),
     )
 
-    // beneficiary/frozen, then the credits mapping, then defaultResolver/publicSalesOpen
+    // beneficiary/frozen, then the sponsor, then defaultResolver/publicSalesOpen
     expect(resolverSlot - beneficiarySlot).toBe(2)
 
     // and the reentrancy guard, the last pre-existing variable, sits just before
@@ -143,15 +143,15 @@ describe('controller storage layout', () => {
     )
   })
 
-  it('the credits mapping is keyed from its own slot', async () => {
+  it('the sponsor sits in its own slot', async () => {
     const { controller } = await load()
     const before = await snapshot(controller.address)
-    await controller.write.setRegistrarAllowance([alice.address, 7n], {
-      account: guardian,
+    await controller.write.setSponsor([alice.address], {
+      account: owner,
     })
     const after = await snapshot(controller.address)
-    // a mapping write lands at a hashed slot, never in the scanned range
-    expect(changed(before, after)).toHaveLength(0)
-    expect(await controller.read.registrarAllowance([alice.address])).toBe(7n)
+    const touched = changed(before, after)
+    expect(touched).toHaveLength(1)
+    expect(after[touched[0]]).toBe(pad(alice.address).toLowerCase())
   })
 })
