@@ -84,7 +84,7 @@ describe('recipient consent', () => {
       expect(await sponsor.read.REGISTER_TYPEHASH()).toBe(
         keccak256(
           toHex(
-            'RegisterName(string label,address owner,address resolver,bytes[] data,uint256 nonce,uint256 deadline)',
+            'RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 nonce,uint256 deadline)',
           ),
         ),
       )
@@ -146,6 +146,7 @@ describe('recipient consent', () => {
       )
       const tampered = [
         { ...signed, label: 'othername' },
+        { ...signed, duration: 3n * MIN_REGISTRATION },
         { ...signed, resolver: carol.address },
         {
           ...signed,
@@ -175,7 +176,7 @@ describe('recipient consent', () => {
       ).toBe(getAddress(bob.address))
     })
 
-    it('leaves the secret and the duration to the payer', async () => {
+    it('leaves the secret to the payer', async () => {
       const { controller, sponsor, baseRegistrar } = await load()
       const [signed, nonce, deadline, sig] = await signRegistration(
         connection,
@@ -185,7 +186,6 @@ describe('recipient consent', () => {
       const reg = {
         ...signed,
         secret: keccak256(toHex('chosen later')),
-        duration: 3n * MIN_REGISTRATION,
       }
       await commit(controller, reg)
       await sponsor.write.registerWithCredit([reg, nonce, deadline, sig], {

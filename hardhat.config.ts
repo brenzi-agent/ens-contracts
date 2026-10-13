@@ -66,6 +66,9 @@ const config = {
       type: 'edr-simulated',
       allowUnlimitedContractSize: false,
       chainId: 1337,
+      ...(process.env.HARDHAT_INITIAL_DATE
+        ? { initialDate: process.env.HARDHAT_INITIAL_DATE }
+        : {}),
     },
     mainnetFork: {
       type: 'edr-simulated',

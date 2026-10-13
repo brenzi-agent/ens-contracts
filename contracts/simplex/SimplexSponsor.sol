@@ -22,7 +22,7 @@ contract SimplexSponsor {
     bytes32 private constant _EIP712_VERSION = keccak256("1");
     bytes32 public constant REGISTER_TYPEHASH =
         keccak256(
-            "RegisterName(string label,address owner,address resolver,bytes[] data,uint256 nonce,uint256 deadline)"
+            "RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 nonce,uint256 deadline)"
         );
 
     SimplexController public immutable controller;
@@ -68,7 +68,7 @@ contract SimplexSponsor {
     /// @notice Register with no value attached, spending the name's list price
     ///         from the caller's allowance.
     /// @param sig The owner's EIP-712 `RegisterName` signature, which covers the
-    ///        label, the resolver and `data`, not the secret, duration or referrer.
+    ///        label, the duration, the resolver and `data`, not the secret or referrer.
     ///        Not checked when the owner is the caller.
     function registerWithCredit(
         IETHRegistrarController.Registration calldata registration,
@@ -151,6 +151,7 @@ contract SimplexSponsor {
                         REGISTER_TYPEHASH,
                         keccak256(bytes(registration.label)),
                         owner,
+                        registration.duration,
                         registration.resolver,
                         keccak256(abi.encodePacked(dataHashes)),
                         nonce,
