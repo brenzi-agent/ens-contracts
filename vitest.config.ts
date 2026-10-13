@@ -27,9 +27,9 @@ export default defineConfig({
       'test/ethregistrar/TestEthRegistrarController.test.ts',
       'test/ethregistrar/TestStaticBulkRenewal.test.ts',
       'test/utils/TestMigrationHelper.test.ts',
-      // ReverseRegistrar hands each address its reverse node, a subnode of
-      // addr.reverse owned by someone other than the caller, which the SNRC
-      // registry refuses. SNRC runs no reverse resolution and deploys neither.
+      // ReverseRegistrar assigns each address its node under addr.reverse,
+      // which is not a TLD, so the SNRC registry reverts. SNRC runs no reverse
+      // resolution and deploys none of these.
       'test/reverseRegistrar/TestReverseRegistrar.test.ts',
       'test/reverseRegistrar/TestReverseClaimer.test.ts',
       'test/reverseResolver/TestETHReverseResolver.ts',

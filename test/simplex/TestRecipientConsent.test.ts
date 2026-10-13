@@ -1,5 +1,6 @@
 import hre from 'hardhat'
 import {
+  encodeFunctionData,
   getAddress,
   keccak256,
   labelhash,
@@ -16,14 +17,14 @@ import {
   FAR_FUTURE,
   MIN_REGISTRATION,
   node,
+  registerWithCredit,
   registration,
-  signIntent,
+  signRegistration,
+  sponsorOf,
   TLD_NODE,
-  withConsent,
 } from './fixtures/namesV2.js'
 
 const connection = await hre.network.connect()
-const publicClient = await connection.viem.getPublicClient()
 const [
   ownerClient,
   guardianClient,
@@ -52,7 +53,10 @@ async function fixture() {
     { account: guardian },
   )
   await f.controller.write.setPublicSalesOpen([true], { account: owner })
-  await sponsored(f, registration('alicename', alice.address))
+  await sponsoredRegister(
+    f.controller,
+    registration('alicename', alice.address),
+  )
   return f
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
@@ -63,36 +67,29 @@ async function commit(controller: any, reg: any) {
   })
 }
 
-async function sponsored(f: any, reg: any) {
-  await commit(f.controller, reg)
-  return f.sponsor.write.registerWithCredit(
-    await withConsent(connection, f.sponsor, reg),
-    { account: registrar },
-  )
+async function sponsoredRegister(controller: any, reg: any) {
+  await commit(controller, reg)
+  const sponsor = await sponsorOf(connection, controller)
+  return registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
 
-/** The owner's `RegisterName` signature, signed by `client`. */
-const signRegistration = (
-  client: any,
-  sponsor: `0x${string}`,
-  reg: any,
-  deadline = FAR_FUTURE,
-) =>
-  signIntent(publicClient, client, 'SimplexSponsor', sponsor, 'RegisterName', {
-    label: reg.label,
-    owner: reg.owner,
-    resolver: reg.resolver,
-    data: reg.data,
-    deadline,
-  })
-
 /**
- * Nobody can be made the holder of a name, or the owner of a registry node,
- * without agreeing to it: an address could otherwise be tied on chain to
- * content it never chose. Agreeing means being the caller, or signing.
+ * Nobody becomes the holder of a name, or the owner of a registry node, without
+ * their consent: being the caller, or signing.
  */
 describe('recipient consent', () => {
   describe('registration', () => {
+    it('pins the EIP-712 type hash', async () => {
+      const { sponsor } = await load()
+      expect(await sponsor.read.REGISTER_TYPEHASH()).toBe(
+        keccak256(
+          toHex(
+            'RegisterName(string label,address owner,address resolver,bytes[] data,uint256 nonce,uint256 deadline)',
+          ),
+        ),
+      )
+    })
+
     it('the payable path registers to the caller only', async () => {
       const { controller } = await load()
       const forBob = registration('forbobname', bob.address)
@@ -123,36 +120,37 @@ describe('recipient consent', () => {
       const reg = registration('nosigname', bob.address)
       await commit(controller, reg)
       await expect(
-        sponsor.write.registerWithCredit([reg, FAR_FUTURE, '0x'], {
+        sponsor.write.registerWithCredit([reg, 0n, FAR_FUTURE, '0x'], {
           account: registrar,
         }),
       ).toBeRevertedWithCustomError('InvalidSignature')
-      // the registrar signing for the owner is no better
       await expect(
         sponsor.write.registerWithCredit(
-          [
-            reg,
-            FAR_FUTURE,
-            await signRegistration(registrarClient, sponsor.address, reg),
-          ],
+          await signRegistration(connection, sponsor, reg, {
+            signer: registrarClient,
+          }),
           { account: registrar },
         ),
       ).toBeRevertedWithCustomError('InvalidSignature')
     })
 
     it('a signature covers the label and everything written at registration', async () => {
-      const { controller, sponsor, resolver } = await load()
+      const { controller, sponsor, resolver, baseRegistrar } = await load()
       const signed = registration('signedname', bob.address, {
         resolver: resolver.address,
       })
-      const sig = await signRegistration(bobClient, sponsor.address, signed)
+      const [, nonce, deadline, sig] = await signRegistration(
+        connection,
+        sponsor,
+        signed,
+      )
       const tampered = [
         { ...signed, label: 'othername' },
         { ...signed, resolver: carol.address },
         {
           ...signed,
           data: [
-            (await import('viem')).encodeFunctionData({
+            encodeFunctionData({
               abi: resolver.abi,
               functionName: 'setText',
               args: [node('signedname'), 'simplex.contact', 'smp://mallory'],
@@ -163,29 +161,58 @@ describe('recipient consent', () => {
       for (const reg of tampered) {
         await commit(controller, reg)
         await expect(
-          sponsor.write.registerWithCredit([reg, FAR_FUTURE, sig], {
+          sponsor.write.registerWithCredit([reg, nonce, deadline, sig], {
             account: registrar,
           }),
         ).toBeRevertedWithCustomError('InvalidSignature')
       }
+      await commit(controller, signed)
+      await sponsor.write.registerWithCredit([signed, nonce, deadline, sig], {
+        account: registrar,
+      })
+      expect(
+        await baseRegistrar.read.ownerOf([BigInt(labelhash('signedname'))]),
+      ).toBe(getAddress(bob.address))
     })
 
     it('leaves the secret and the duration to the payer', async () => {
       const { controller, sponsor, baseRegistrar } = await load()
-      const signed = registration('payername', bob.address)
-      const sig = await signRegistration(bobClient, sponsor.address, signed)
+      const [signed, nonce, deadline, sig] = await signRegistration(
+        connection,
+        sponsor,
+        registration('payername', bob.address),
+      )
       const reg = {
         ...signed,
         secret: keccak256(toHex('chosen later')),
         duration: 3n * MIN_REGISTRATION,
       }
       await commit(controller, reg)
-      await sponsor.write.registerWithCredit([reg, FAR_FUTURE, sig], {
+      await sponsor.write.registerWithCredit([reg, nonce, deadline, sig], {
         account: registrar,
       })
       expect(
         await baseRegistrar.read.ownerOf([BigInt(labelhash('payername'))]),
       ).toBe(getAddress(bob.address))
+    })
+
+    it('a signature registers a name once, even after the name lapses', async () => {
+      const { controller, sponsor } = await load()
+      const args = await signRegistration(
+        connection,
+        sponsor,
+        registration('oncename', bob.address),
+      )
+      await commit(controller, args[0])
+      await sponsor.write.registerWithCredit(args, { account: registrar })
+
+      await connection.networkHelpers.time.increase(
+        Number(MIN_REGISTRATION + GRACE + 1n),
+      )
+      await commit(controller, args[0])
+      await expect(
+        sponsor.write.registerWithCredit(args, { account: registrar }),
+      ).toBeRevertedWithCustomError('InvalidNonce')
     })
 
     it('refuses an expired signature', async () => {
@@ -194,7 +221,7 @@ describe('recipient consent', () => {
       await commit(controller, reg)
       await expect(
         sponsor.write.registerWithCredit(
-          await withConsent(connection, sponsor, reg, 1n),
+          await signRegistration(connection, sponsor, reg, { deadline: 1n }),
           { account: registrar },
         ),
       ).toBeRevertedWithCustomError('SignatureExpired')
@@ -210,9 +237,7 @@ describe('recipient consent', () => {
       await expect(
         controller.write.renewSponsored(
           ['alicename', MIN_REGISTRATION, zeroHash],
-          {
-            account: registrar,
-          },
+          { account: registrar },
         ),
       ).toBeRevertedWithCustomError('NotSponsor')
     })
@@ -221,7 +246,7 @@ describe('recipient consent', () => {
       const { controller, sponsor, baseRegistrar } = await load()
       const reg = registration('selfname', registrar.address)
       await commit(controller, reg)
-      await sponsor.write.registerWithCredit([reg, 0n, '0x'], {
+      await sponsor.write.registerWithCredit([reg, 0n, 0n, '0x'], {
         account: registrar,
       })
       expect(
@@ -238,11 +263,7 @@ describe('recipient consent', () => {
       const reg = registration('walletname', wallet.address)
       await commit(controller, reg)
       await sponsor.write.registerWithCredit(
-        [
-          reg,
-          FAR_FUTURE,
-          await signRegistration(bobClient, sponsor.address, reg),
-        ],
+        await signRegistration(connection, sponsor, reg, { signer: bobClient }),
         { account: registrar },
       )
       expect(
@@ -250,19 +271,19 @@ describe('recipient consent', () => {
       ).toBe(getAddress(wallet.address))
     })
 
-    it('a registration with records still hands the name and its node to the owner', async () => {
-      const { controller, sponsor, baseRegistrar, ens, resolver } = await load()
+    it('a registration with records still gives the owner the name and its node', async () => {
+      const { controller, baseRegistrar, ens, resolver } = await load()
       const reg = registration('recordname', bob.address, {
         resolver: resolver.address,
         data: [
-          (await import('viem')).encodeFunctionData({
+          encodeFunctionData({
             abi: resolver.abi,
             functionName: 'setText',
             args: [node('recordname'), 'simplex.contact', 'smp://bob'],
           }),
         ],
       })
-      await sponsored({ controller, sponsor }, reg)
+      await sponsoredRegister(controller, reg)
       expect(
         await baseRegistrar.read.ownerOf([BigInt(labelhash('recordname'))]),
       ).toBe(getAddress(bob.address))
@@ -281,9 +302,7 @@ describe('recipient consent', () => {
       await expect(
         baseRegistrar.write.transferFrom(
           [alice.address, bob.address, ALICE_ID],
-          {
-            account: alice,
-          },
+          { account: alice },
         ),
       ).toBeRevertedWithCustomError('RecipientMustBeCaller')
       await expect(
@@ -308,9 +327,7 @@ describe('recipient consent', () => {
       await expect(
         baseRegistrar.write.transferFrom(
           [alice.address, carol.address, ALICE_ID],
-          {
-            account: bob,
-          },
+          { account: bob },
         ),
       ).toBeRevertedWithCustomError('RecipientMustBeCaller')
       await baseRegistrar.write.setApprovalForAll([carol.address, true], {
@@ -319,9 +336,7 @@ describe('recipient consent', () => {
       await expect(
         baseRegistrar.write.transferFrom(
           [alice.address, bob.address, ALICE_ID],
-          {
-            account: carol,
-          },
+          { account: carol },
         ),
       ).toBeRevertedWithCustomError('RecipientMustBeCaller')
     })
@@ -333,9 +348,7 @@ describe('recipient consent', () => {
       })
       await baseRegistrar.write.transferFrom(
         [alice.address, bob.address, ALICE_ID],
-        {
-          account: bob,
-        },
+        { account: bob },
       )
       expect(await baseRegistrar.read.ownerOf([ALICE_ID])).toBe(
         getAddress(bob.address),
@@ -361,14 +374,12 @@ describe('recipient consent', () => {
       await expect(
         baseRegistrar.write.transferFrom(
           [alice.address, bob.address, ALICE_ID],
-          {
-            account: bob,
-          },
+          { account: bob },
         ),
       ).toBeRevertedWithString('ERC721: caller is not token owner or approved')
     })
 
-    it('an offer dies when the name moves', async () => {
+    it('an offer is cleared when the name moves', async () => {
       const { baseRegistrar } = await load()
       await baseRegistrar.write.approve([bob.address, ALICE_ID], {
         account: alice,
@@ -379,35 +390,32 @@ describe('recipient consent', () => {
       // carol, an operator, takes it for herself
       await baseRegistrar.write.transferFrom(
         [alice.address, carol.address, ALICE_ID],
-        {
-          account: carol,
-        },
+        { account: carol },
       )
       await expect(
         baseRegistrar.write.transferFrom(
           [carol.address, bob.address, ALICE_ID],
-          {
-            account: bob,
-          },
+          { account: bob },
         ),
       ).toBeRevertedWithString('ERC721: caller is not token owner or approved')
     })
 
-    it('an offer dies when the name is re-registered', async () => {
-      const f = await load()
-      await f.baseRegistrar.write.approve([bob.address, ALICE_ID], {
+    it('an offer is cleared when the name is re-registered', async () => {
+      const { controller, baseRegistrar } = await load()
+      await baseRegistrar.write.approve([bob.address, ALICE_ID], {
         account: alice,
       })
       await connection.networkHelpers.time.increase(
         Number(MIN_REGISTRATION + GRACE + 1n),
       )
-      await sponsored(f, registration('alicename', carol.address))
+      await sponsoredRegister(
+        controller,
+        registration('alicename', carol.address),
+      )
       await expect(
-        f.baseRegistrar.write.transferFrom(
+        baseRegistrar.write.transferFrom(
           [carol.address, bob.address, ALICE_ID],
-          {
-            account: bob,
-          },
+          { account: bob },
         ),
       ).toBeRevertedWithString('ERC721: caller is not token owner or approved')
     })
@@ -445,7 +453,7 @@ describe('recipient consent', () => {
         baseRegistrar.write.reclaim([ALICE_ID, bob.address], {
           account: alice,
         }),
-      ).rejects.toThrow()
+      ).toBeRevertedWithoutReason()
       await ens.write.setOwner([node('alicename'), zeroAddress], {
         account: alice,
       })
@@ -462,9 +470,7 @@ describe('recipient consent', () => {
       await expect(
         ens.write.setSubnodeOwner(
           [node('alicename'), labelhash('x'), bob.address],
-          {
-            account: alice,
-          },
+          { account: alice },
         ),
       ).toBeRevertedWithCustomError('OwnerMustBeCaller')
       await expect(
@@ -473,9 +479,13 @@ describe('recipient consent', () => {
           { account: alice },
         ),
       ).toBeRevertedWithCustomError('OwnerMustBeCaller')
-      // a subnode of their own is still theirs to make
+      // a subnode of their own is still theirs to make, and to clear
       await ens.write.setSubnodeOwner(
         [node('alicename'), labelhash('x'), alice.address],
+        { account: alice },
+      )
+      await ens.write.setSubnodeOwner(
+        [node('alicename'), labelhash('x'), zeroAddress],
         { account: alice },
       )
     })

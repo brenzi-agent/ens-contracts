@@ -6,8 +6,8 @@ import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
   node,
+  registerWithCredit,
   registration,
-  withConsent,
 } from './fixtures/namesV2.js'
 
 // Round-3 lows: admin footguns and inputs that were accepted but meaningless.
@@ -38,10 +38,7 @@ async function fixture() {
     [await f.controller.read.makeCommitment([reg])],
     { account: registrar },
   )
-  await f.sponsor.write.registerWithCredit(
-    await withConsent(connection, f.sponsor, reg),
-    { account: registrar },
-  )
+  await registerWithCredit(connection, f.sponsor, reg, { account: registrar })
   return f
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)

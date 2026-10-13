@@ -6,10 +6,11 @@ import { deployNamesV2 } from './fixtures/namesV2.js'
 
 const connection = await hre.network.connect()
 const publicClient = await connection.viem.getPublicClient()
-const [ownerClient, guardianClient] =
+const [ownerClient, guardianClient, , aliceClient] =
   await connection.viem.getWalletClients()
 const owner = ownerClient.account
 const guardian = guardianClient.account
+const alice = aliceClient.account
 
 async function fixture() {
   return deployNamesV2(connection, {
@@ -89,7 +90,7 @@ describe('controller storage layout', () => {
       await snapshot(controller.address),
     )
 
-    // beneficiary/frozen, then the retired credits slot, then defaultResolver/publicSalesOpen
+    // beneficiary/frozen, then the sponsor, then defaultResolver/publicSalesOpen
     expect(resolverSlot - beneficiarySlot).toBe(2)
 
     // and the reentrancy guard, the last pre-existing variable, sits just before
@@ -142,17 +143,15 @@ describe('controller storage layout', () => {
     )
   })
 
-  it('the sponsor is appended after wasDefaultResolver', async () => {
-    const { controller, sponsor } = await load()
-    const base = await snapshot(controller.address)
-    await controller.write.setPublicSalesOpen([true], { account: owner })
-    const [resolverSlot] = changed(base, await snapshot(controller.address))
-    // defaultResolver/publicSalesOpen, the wasDefaultResolver mapping, then the
-    // sponsor the fixture set
-    const word = await publicClient.getStorageAt({
-      address: controller.address,
-      slot: pad(toHex(resolverSlot + 2)),
+  it('the sponsor sits in its own slot', async () => {
+    const { controller } = await load()
+    const before = await snapshot(controller.address)
+    await controller.write.setSponsor([alice.address], {
+      account: owner,
     })
-    expect(word!.toLowerCase()).toContain(sponsor.address.slice(2).toLowerCase())
+    const after = await snapshot(controller.address)
+    const touched = changed(before, after)
+    expect(touched).toHaveLength(1)
+    expect(after[touched[0]]).toBe(pad(alice.address).toLowerCase())
   })
 })

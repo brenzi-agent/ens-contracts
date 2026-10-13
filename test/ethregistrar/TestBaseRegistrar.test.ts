@@ -205,18 +205,14 @@ describe('BaseRegistrar', () => {
     const { baseRegistrar } = await loadFixtureWithRegistration()
     const testClient = await connection.viem.getTestClient()
 
-    await baseRegistrar.write.approve(
-      [otherAccount.address, toLabelId('newname')],
-      { account: registrantAccount },
-    )
     await testClient.increaseTime({ seconds: 86400 + 3600 })
     await testClient.mine({ blocks: 1 })
 
     await expect(
       baseRegistrar.write.transferFrom(
-        [registrantAccount.address, otherAccount.address, toLabelId('newname')],
+        [registrantAccount.address, registrantAccount.address, toLabelId('newname')],
         {
-          account: otherAccount,
+          account: registrantAccount,
         },
       ),
     ).toBeRevertedWithoutReason()

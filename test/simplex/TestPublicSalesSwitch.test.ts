@@ -6,8 +6,9 @@ import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
   MIN_REGISTRATION,
+  registerWithCredit,
   registration,
-  withConsent,
+  sponsorOf,
   YEAR,
   YEAR_PRICE_USD,
 } from './fixtures/namesV2.js'
@@ -46,15 +47,13 @@ async function payableRegister(controller: any, label: string) {
   })
 }
 
-async function creditedRegister({ controller, sponsor }: any, label: string) {
+async function creditedRegister(controller: any, label: string) {
   const reg = registration(label, alice.address)
   await controller.write.commit([await controller.read.makeCommitment([reg])], {
     account: registrar,
   })
-  return sponsor.write.registerWithCredit(
-    await withConsent(connection, sponsor, reg),
-    { account: registrar },
-  )
+  const sponsor = await sponsorOf(connection, controller)
+  return registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
 
 describe('public sales switch', () => {
@@ -83,9 +82,9 @@ describe('public sales switch', () => {
   })
 
   it('the credited path is exempt — this is how the investor window is served', async () => {
-    const { controller, sponsor } = await load()
+    const { controller } = await load()
     expect(await controller.read.publicSalesOpen()).toBe(false)
-    await creditedRegister({ controller, sponsor }, 'investor')
+    await creditedRegister(controller, 'investor')
   })
 
   it('registerReserved is exempt', async () => {
@@ -98,7 +97,7 @@ describe('public sales switch', () => {
 
   it('renewal is exempt in both forms, so a pause never costs anyone a name', async () => {
     const { controller, sponsor } = await load()
-    await creditedRegister({ controller, sponsor }, 'renewany')
+    await creditedRegister(controller, 'renewany')
     expect(await controller.read.publicSalesOpen()).toBe(false)
 
     await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash], {

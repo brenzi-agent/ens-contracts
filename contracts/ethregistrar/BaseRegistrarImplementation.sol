@@ -245,15 +245,14 @@ contract BaseRegistrarImplementation is
     /// ------------------------------------------------------------------
     /// Consented transfer
     ///
-    /// A name moves only when its recipient takes it, so nobody can be made
-    /// the holder of a name they never wanted. The holder offers it with
-    /// `approve`, and the recipient takes it with `transferFrom` to itself.
-    /// Pushing to anyone else reverts, which also rules out marketplaces whose
-    /// settlement contract delivers to the buyer. Controllers are exempt: they
-    /// hand a fresh registration to an owner whose consent they checked.
+    /// A transfer completes only when the recipient is the caller, so nobody
+    /// becomes the holder of a name without their consent: the holder offers
+    /// it with `approve`, and the recipient calls `transferFrom`. A controller
+    /// may call `transferFrom` for anyone, so a new registration can be
+    /// transferred from the controller to its owner.
     ///
-    /// Either half can be signed instead of sent (EIP-712), so a relayer can
-    /// submit it and neither party needs ETH. The relayer pays gas and nothing
+    /// Either half can be signed instead (EIP-712) and submitted by a relayer,
+    /// so neither party needs ETH. The relayer pays gas and nothing
     /// else: it cannot choose the recipient, cannot replay, and cannot act
     /// after the deadline.
     /// ------------------------------------------------------------------
@@ -275,9 +274,15 @@ contract BaseRegistrarImplementation is
         uint256 tokenId,
         bytes memory data
     ) public override(IERC721, ERC721) {
-        if (to != msg.sender && !controllers[msg.sender])
-            revert RecipientMustBeCaller();
+        if (to != msg.sender) revert RecipientMustBeCaller();
         super.safeTransferFrom(from, to, tokenId, data);
+    }
+
+    function _approve(address to, uint256 tokenId) internal override {
+        super._approve(to, tokenId);
+        unchecked {
+            ++offers[tokenId];
+        }
     }
 
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
@@ -292,7 +297,7 @@ contract BaseRegistrarImplementation is
         );
     bytes32 public constant CLAIM_TYPEHASH =
         keccak256(
-            "ClaimName(address from,address to,uint256 tokenId,uint256 nonce,uint256 deadline)"
+            "ClaimName(address from,address to,uint256 tokenId,uint256 offer,uint256 nonce,uint256 deadline)"
         );
 
     /// @dev ERC-5564 scheme id 1: secp256k1 with view tags, the only scheme the
@@ -302,6 +307,10 @@ contract BaseRegistrarImplementation is
     /// @dev One counter per signer, consumed in order, so a signature cannot be
     ///      replayed and two intents cannot be reordered.
     mapping(address => uint256) public nonces;
+
+    /// @dev The number of the current offer for each token, incremented by every
+    ///      `approve`, so a claim signature is valid for one offer and no later one.
+    mapping(uint256 => uint256) public offers;
 
     /// @dev ERC-5564 `Announcement`, verbatim in name, parameter list and
     ///      indexing, so any indexer that knows the standard decodes ours by
@@ -366,13 +375,9 @@ contract BaseRegistrarImplementation is
         bytes calldata ephemeralPubKey,
         bytes1 viewTag
     ) external {
-        // An offer to oneself is never a gift, so it is refused rather than
-        // announced to every recipient's recovery scan.
         if (to == from) revert TransferToSelf();
         if (block.timestamp > deadline) revert SignatureExpired();
         if (nonce != nonces[from]) revert InvalidNonce();
-        // Grace-aware ownerOf reverts once expired, so a lapsed name cannot be
-        // offered out from under the person about to re-register it.
         if (ownerOf(tokenId) != from) revert NotNameOwner();
 
         if (
@@ -400,42 +405,6 @@ contract BaseRegistrarImplementation is
             _announce(to, tokenId, ephemeralPubKey, viewTag);
     }
 
-    /// @notice Take `tokenId` from `from`, signed by the recipient `to`: the
-    ///         `transferFrom` half. Only an open offer to `to` can be claimed,
-    ///         and every transfer or re-registration clears the offer.
-    function claimWithSig(
-        address from,
-        address to,
-        uint256 tokenId,
-        uint256 nonce,
-        uint256 deadline,
-        bytes calldata sig
-    ) external {
-        if (block.timestamp > deadline) revert SignatureExpired();
-        if (nonce != nonces[to]) revert InvalidNonce();
-        if (ownerOf(tokenId) != from) revert NotNameOwner();
-        if (getApproved(tokenId) != to) revert NotOffered();
-
-        bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                DOMAIN_SEPARATOR(),
-                keccak256(
-                    abi.encode(CLAIM_TYPEHASH, from, to, tokenId, nonce, deadline)
-                )
-            )
-        );
-        if (!SignatureChecker.isValidSignatureNow(to, digest, sig))
-            revert InvalidSignature();
-
-        unchecked {
-            nonces[to] = nonce + 1;
-        }
-        // _transfer, not a raw write: the auto-reclaim hook below must fire so
-        // the registry node and its subnames follow the token.
-        _transfer(from, to, tokenId);
-    }
-
     /// @dev Split out of `approveWithSig` for the same stack reason as
     ///      `_approveDigest`.
     function _announce(
@@ -446,7 +415,7 @@ contract BaseRegistrarImplementation is
     ) private {
         // ERC-5564 ERC-721 metadata layout: view tag, then the transferFrom
         // selector, the token contract and the token id, so a scanner that
-        // matches the view tag learns what it was sent without a second lookup.
+        // matches the view tag learns what is offered without a second lookup.
         emit Announcement(
             STEALTH_SCHEME_ID,
             to,
@@ -486,6 +455,54 @@ contract BaseRegistrarImplementation is
                     )
                 )
             );
+    }
+
+    /// @notice Take `tokenId` from `from`, signed by the recipient `to`: the
+    ///         `transferFrom` half. Only the open offer number `offer` to `to`
+    ///         can be claimed; every transfer or re-registration clears it.
+    function claimWithSig(
+        address from,
+        address to,
+        uint256 tokenId,
+        uint256 offer,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata sig
+    ) external {
+        if (block.timestamp > deadline) revert SignatureExpired();
+        if (nonce != nonces[to]) revert InvalidNonce();
+        // Grace-aware ownerOf reverts once expired, so a lapsed name cannot be
+        // moved out from under the person about to re-register it.
+        if (ownerOf(tokenId) != from) revert NotNameOwner();
+        if (getApproved(tokenId) != to || offer != offers[tokenId])
+            revert NotOffered();
+
+        bytes32 digest = keccak256(
+            abi.encodePacked(
+                "\x19\x01",
+                DOMAIN_SEPARATOR(),
+                keccak256(
+                    abi.encode(
+                        CLAIM_TYPEHASH,
+                        from,
+                        to,
+                        tokenId,
+                        offer,
+                        nonce,
+                        deadline
+                    )
+                )
+            )
+        );
+        if (!SignatureChecker.isValidSignatureNow(to, digest, sig))
+            revert InvalidSignature();
+
+        unchecked {
+            nonces[to] = nonce + 1;
+        }
+        // _transfer, not a raw write: the auto-reclaim hook below must fire so
+        // the registry node and its subnames follow the token.
+        _transfer(from, to, tokenId);
     }
 
     /// @dev Auto-reclaim: an NFT transfer re-points the 2LD's ENS registry node

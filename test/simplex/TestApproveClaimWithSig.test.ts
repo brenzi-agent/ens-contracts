@@ -11,6 +11,7 @@ import {
 import { describe, it, expect } from 'vitest'
 
 import { DAY } from '../fixtures/constants.js'
+import { FAR_FUTURE, signIntent } from './fixtures/namesV2.js'
 
 const connection = await hre.network.connect()
 const publicClient = await connection.viem.getPublicClient()
@@ -22,7 +23,6 @@ const bobAccount = bobClient.account
 const relayer = relayerClient.account
 
 const DURATION = 365n * DAY
-const FAR_FUTURE = 4102444800n // 2100-01-01
 
 async function fixture() {
   const ensRegistry = await connection.viem.deployContract('ENSRegistry', [])
@@ -51,47 +51,12 @@ const ALICE = getAddress(aliceAccount.address)
 const BOB = getAddress(bobAccount.address)
 const CAROL = getAddress(carolClient.account.address)
 
-const types = {
-  ApproveName: [
-    { name: 'from', type: 'address' },
-    { name: 'to', type: 'address' },
-    { name: 'tokenId', type: 'uint256' },
-    { name: 'ephemeralPubKey', type: 'bytes' },
-    { name: 'viewTag', type: 'bytes1' },
-    { name: 'nonce', type: 'uint256' },
-    { name: 'deadline', type: 'uint256' },
-  ],
-  ClaimName: [
-    { name: 'from', type: 'address' },
-    { name: 'to', type: 'address' },
-    { name: 'tokenId', type: 'uint256' },
-    { name: 'nonce', type: 'uint256' },
-    { name: 'deadline', type: 'uint256' },
-  ],
-} as const
-
 type Intent = {
   from: `0x${string}`
   to: `0x${string}`
   tokenId: bigint
   nonce: bigint
   deadline: bigint
-}
-
-async function sign(
-  client: typeof aliceClient,
-  verifyingContract: `0x${string}`,
-  primaryType: keyof typeof types,
-  message: any,
-) {
-  const chainId = await publicClient.getChainId()
-  return client.signTypedData({
-    account: client.account,
-    domain: { name: 'SimplexNames', version: '1', chainId, verifyingContract },
-    types,
-    primaryType,
-    message,
-  })
 }
 
 /** The holder's half, relayed: an offer of `m.tokenId` to `m.to`. */
@@ -102,11 +67,14 @@ async function offer(
   ephemeralPubKey: `0x${string}` = '0x',
   viewTag: `0x${string}` = '0x00',
 ) {
-  const sig = await sign(signer, baseRegistrar.address, 'ApproveName', {
-    ...m,
-    ephemeralPubKey,
-    viewTag,
-  })
+  const sig = await signIntent(
+    publicClient,
+    signer,
+    'SimplexNames',
+    baseRegistrar.address,
+    'ApproveName',
+    { ...m, ephemeralPubKey, viewTag },
+  )
   return baseRegistrar.write.approveWithSig(
     [
       m.from,
@@ -122,15 +90,40 @@ async function offer(
   )
 }
 
+/** The recipient's half: `claimWithSig` arguments for the current offer. */
+async function signClaim(
+  baseRegistrar: any,
+  m: Intent,
+  signer: typeof aliceClient = bobClient,
+) {
+  const current: bigint = await baseRegistrar.read.offers([m.tokenId])
+  const sig = await signIntent(
+    publicClient,
+    signer,
+    'SimplexNames',
+    baseRegistrar.address,
+    'ClaimName',
+    { ...m, offer: current },
+  )
+  return [m.from, m.to, m.tokenId, current, m.nonce, m.deadline, sig] as [
+    `0x${string}`,
+    `0x${string}`,
+    bigint,
+    bigint,
+    bigint,
+    bigint,
+    `0x${string}`,
+  ]
+}
+
 /** The recipient's half, relayed: taking `m.tokenId` from `m.from`. */
 async function claim(
   baseRegistrar: any,
   m: Intent,
   signer: typeof aliceClient = bobClient,
 ) {
-  const sig = await sign(signer, baseRegistrar.address, 'ClaimName', m)
   return baseRegistrar.write.claimWithSig(
-    [m.from, m.to, m.tokenId, m.nonce, m.deadline, sig],
+    await signClaim(baseRegistrar, m, signer),
     { account: relayer },
   )
 }
@@ -165,7 +158,7 @@ describe('approveWithSig and claimWithSig', () => {
     expect(await baseRegistrar.read.CLAIM_TYPEHASH()).toBe(
       keccak256(
         toHex(
-          'ClaimName(address from,address to,uint256 tokenId,uint256 nonce,uint256 deadline)',
+          'ClaimName(address from,address to,uint256 tokenId,uint256 offer,uint256 nonce,uint256 deadline)',
         ),
       ),
     )
@@ -227,7 +220,7 @@ describe('approveWithSig and claimWithSig', () => {
     expect(logs.length).toBe(0)
   })
 
-  it('rejects an offer to the holder, so announcements cost a real gift', async () => {
+  it('rejects an offer to the holder', async () => {
     const { baseRegistrar } = await loadFixture()
     await expect(
       offer(
@@ -251,7 +244,6 @@ describe('approveWithSig and claimWithSig', () => {
   it('rejects a claim signed by anyone but the recipient', async () => {
     const { baseRegistrar } = await loadFixture()
     await offer(baseRegistrar, aliceToBob)
-    // Alice cannot complete her own offer: the recipient has to take it.
     await expect(claim(baseRegistrar, aliceToBob, aliceClient)).rejects.toThrow(
       'InvalidSignature',
     )
@@ -276,21 +268,27 @@ describe('approveWithSig and claimWithSig', () => {
     await expect(claim(baseRegistrar, aliceToBob)).rejects.toThrow('NotOffered')
   })
 
-  it('an offer dies when the name moves', async () => {
+  it('a claim is valid for one offer, so a later offer does not revive it', async () => {
     const { baseRegistrar } = await loadFixture()
     await offer(baseRegistrar, aliceToBob)
-    // Bob takes it, then offers it on to Carol, who takes it too. One nonce
-    // per signer, so Bob's claim moved his counter to 1.
-    await claim(baseRegistrar, aliceToBob)
-    const bobToCarol = { ...aliceToBob, from: BOB, to: CAROL }
-    await offer(baseRegistrar, { ...bobToCarol, nonce: 1n }, bobClient)
-    await claim(baseRegistrar, bobToCarol, carolClient)
-    // Alice no longer holds it, and the move cleared Bob's offer to Carol.
+    const signed = await signClaim(baseRegistrar, aliceToBob)
+    await offer(baseRegistrar, { ...aliceToBob, to: zeroAddress, nonce: 1n })
+    await offer(baseRegistrar, { ...aliceToBob, nonce: 2n })
     await expect(
-      claim(baseRegistrar, { ...aliceToBob, nonce: 2n }),
-    ).rejects.toThrow('NotNameOwner')
+      baseRegistrar.write.claimWithSig(signed, { account: relayer }),
+    ).rejects.toThrow('NotOffered')
+  })
+
+  it('a plain re-offer does not revive a claim either', async () => {
+    const { baseRegistrar } = await loadFixture()
+    await baseRegistrar.write.approve([BOB, TOKEN_ID], { account: aliceAccount })
+    const signed = await signClaim(baseRegistrar, aliceToBob)
+    await baseRegistrar.write.approve([zeroAddress, TOKEN_ID], {
+      account: aliceAccount,
+    })
+    await baseRegistrar.write.approve([BOB, TOKEN_ID], { account: aliceAccount })
     await expect(
-      claim(baseRegistrar, { ...aliceToBob, from: CAROL, nonce: 2n }),
+      baseRegistrar.write.claimWithSig(signed, { account: relayer }),
     ).rejects.toThrow('NotOffered')
   })
 
@@ -300,15 +298,17 @@ describe('approveWithSig and claimWithSig', () => {
     await expect(offer(baseRegistrar, aliceToBob)).rejects.toThrow(
       'InvalidNonce',
     )
-    await claim(baseRegistrar, aliceToBob)
-    // Bob offers it back and Alice takes it; Bob's old claim must stay dead.
+    const signed = await signClaim(baseRegistrar, aliceToBob)
+    await baseRegistrar.write.claimWithSig(signed, { account: relayer })
+    // Bob offers it back and Alice takes it; Bob's old claim must still be
+    // refused, which is what the nonce is for.
     const back = { ...aliceToBob, from: BOB, to: ALICE, nonce: 1n }
     await offer(baseRegistrar, back, bobClient)
     await claim(baseRegistrar, back, aliceClient)
     await offer(baseRegistrar, { ...aliceToBob, nonce: 2n })
-    await expect(claim(baseRegistrar, aliceToBob)).rejects.toThrow(
-      'InvalidNonce',
-    )
+    await expect(
+      baseRegistrar.write.claimWithSig(signed, { account: relayer }),
+    ).rejects.toThrow('InvalidNonce')
   })
 
   it('rejects an expired offer and an expired claim', async () => {

@@ -7,9 +7,9 @@ import {
   deployNamesV2,
   FAR_FUTURE,
   node,
+  registerWithCredit,
   registration,
   signIntent,
-  withConsent,
 } from './fixtures/namesV2.js'
 
 const connection = await hre.network.connect()
@@ -40,10 +40,7 @@ async function fixture() {
     [await f.controller.read.makeCommitment([reg])],
     { account: registrar },
   )
-  await f.sponsor.write.registerWithCredit(
-    await withConsent(connection, f.sponsor, reg),
-    { account: registrar },
-  )
+  await registerWithCredit(connection, f.sponsor, reg, { account: registrar })
   await f.ens.write.setApprovalForAll([f.subnameRegistrar.address, true], {
     account: alice,
   })

@@ -14,8 +14,9 @@ import {
   MIN_REGISTRATION,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
+  registerWithCredit,
   signIntent,
-  withConsent,
+  signRegistration,
   YEAR,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
@@ -92,10 +93,7 @@ async function commitAndRegister(
     account,
   })
   return opts.credit
-    ? sponsor.write.registerWithCredit(
-      await withConsent(connection, sponsor, reg),
-      { account },
-    )
+    ? registerWithCredit(connection, sponsor, reg, { account })
     : controller.write.register([reg], { account, value: opts.value ?? 0n })
 }
 
@@ -168,6 +166,7 @@ describe('launch lifecycle', () => {
         zeroAddress,
       ])
       await subnameRegistrar.write.setResolver([resolver.address])
+      sponsor = await viem.deployContract('SimplexSponsor', [controller.address])
     })
 
     it('gives the TLD to the registrar through Root', async () => {
@@ -185,16 +184,12 @@ describe('launch lifecycle', () => {
       )
     })
 
-    it('wires the registrar, resolver and renderer', async () => {
+    it('wires the registrar, resolver, renderer and sponsor', async () => {
       await baseRegistrar.write.addController([controller.address])
       await baseRegistrar.write.setMetadataRenderer([renderer.address])
       await baseRegistrar.write.setMaxLabelLength([63n])
       await baseRegistrar.write.setSubnameHook([subnameRegistrar.address])
       await controller.write.setDefaultResolver([resolver.address])
-      sponsor = await connection.viem.deployContract('SimplexSponsor', [
-        controller.address,
-        baseRegistrar.address,
-      ])
       await controller.write.setSponsor([sponsor.address])
 
       expect(await baseRegistrar.read.maxLabelLength()).toBe(63n)
@@ -203,6 +198,12 @@ describe('launch lifecycle', () => {
       )
       expect((await controller.read.defaultResolver()).toLowerCase()).toBe(
         resolver.address.toLowerCase(),
+      )
+      expect((await controller.read.sponsor()).toLowerCase()).toBe(
+        sponsor.address.toLowerCase(),
+      )
+      expect((await sponsor.read.controller()).toLowerCase()).toBe(
+        controller.address.toLowerCase(),
       )
     })
 
@@ -323,7 +324,7 @@ describe('launch lifecycle', () => {
       )
       await expect(
         sponsor.write.registerWithCredit(
-          await withConsent(connection, sponsor, reg),
+          await signRegistration(connection, sponsor, reg),
           { account: deployKey },
         ),
       ).toBeRevertedWithCustomError('InsufficientAllowance')
@@ -419,7 +420,7 @@ describe('launch lifecycle', () => {
       )
       await expect(
         sponsor.write.registerWithCredit(
-          await withConsent(connection, sponsor, short),
+          await signRegistration(connection, sponsor, short),
           { account: registrar },
         ),
       ).toBeRevertedWithCustomErrorFrom(controller, 'NameTooShort')
@@ -431,7 +432,7 @@ describe('launch lifecycle', () => {
       )
       await expect(
         sponsor.write.registerWithCredit(
-          await withConsent(connection, sponsor, reserved),
+          await signRegistration(connection, sponsor, reserved),
           { account: registrar },
         ),
       ).toBeRevertedWithCustomErrorFrom(controller, 'NameReserved')
@@ -675,6 +676,7 @@ describe('launch lifecycle', () => {
         from: alice.address,
         to: bob.address,
         tokenId,
+        offer: await baseRegistrar.read.offers([tokenId]),
         nonce: 0n,
         deadline: FAR_FUTURE,
       }
@@ -683,6 +685,7 @@ describe('launch lifecycle', () => {
           c.from,
           c.to,
           c.tokenId,
+          c.offer,
           c.nonce,
           c.deadline,
           await signIntent(
@@ -814,8 +817,6 @@ describe('launch lifecycle', () => {
           await baseRegistrar.read.ownerOf([BigInt(labelhash('freshname'))])
         ).toLowerCase(),
       ).toBe(buyer.address.toLowerCase())
-      // the payable path spends no allowance
-      expect(await sponsor.read.registrarAllowance([buyer.address])).toBe(0n)
     })
 
     it('a released name is now buyable, a reserved one still is not', async () => {
@@ -907,7 +908,7 @@ describe('launch lifecycle', () => {
       ).toBeRevertedWithCustomError('AlreadyFrozen')
     })
 
-    it('the implementation is permanent', async () => {
+    it('the implementation and the sponsor are permanent', async () => {
       const next = await connection.viem.deployContract('SimplexController', [])
       await expect(
         controller.write.upgradeTo([next.address], { account: admin }),
@@ -916,6 +917,9 @@ describe('launch lifecycle', () => {
         controller.write.upgradeToAndCall([next.address, '0x'], {
           account: admin,
         }),
+      ).toBeRevertedWithCustomError('Frozen')
+      await expect(
+        controller.write.setSponsor([next.address], { account: admin }),
       ).toBeRevertedWithCustomError('Frozen')
     })
 

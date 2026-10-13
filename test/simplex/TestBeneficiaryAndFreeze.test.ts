@@ -2,7 +2,7 @@ import hre from 'hardhat'
 import { encodeFunctionData, parseEther, zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { AMPLE_ALLOWANCE, deployNamesV2, MIN_REGISTRATION, registration, withConsent, YEAR } from './fixtures/namesV2.js'
+import { AMPLE_ALLOWANCE, deployNamesV2, MIN_REGISTRATION, registerWithCredit, registration, YEAR } from './fixtures/namesV2.js'
 
 const TRADEMARK = 2 // SimplexController.Reason.Trademark
 
@@ -96,6 +96,14 @@ describe('freeze', () => {
     await expect(
       controller.write.setSponsor([owner.address], { account: owner }),
     ).toBeRevertedWithCustomError('Frozen')
+  })
+
+  it('refuses while no sponsor is set, so it cannot seal the sponsored path shut', async () => {
+    const { controller } = await load()
+    await controller.write.setSponsor([zeroAddress], { account: owner })
+    await expect(
+      controller.write.freeze({ account: owner }),
+    ).toBeRevertedWithCustomError('ZeroAddress')
   })
 
   it('an upgrade succeeds before the freeze, so the block is the freeze and not the proxy', async () => {
@@ -206,10 +214,7 @@ describe('freeze', () => {
       [await controller.read.makeCommitment([reg])],
       { account: registrar },
     )
-    await sponsor.write.registerWithCredit(
-      await withConsent(connection, sponsor, reg),
-      { account: registrar },
-    )
+    await registerWithCredit(connection, sponsor, reg, { account: registrar })
     await sponsor.write.renewWithCredit(['afterfreeze', YEAR, zeroHash], {
       account: registrar,
     })

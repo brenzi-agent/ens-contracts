@@ -7,8 +7,9 @@ import {
   deployNamesV2,
   MIN_REGISTRATION,
   node,
+  registerWithCredit,
   registration,
-  withConsent,
+  sponsorOf,
   YEAR,
 } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
@@ -41,15 +42,13 @@ async function fixture() {
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
-async function sponsoredRegister({ controller, sponsor }: any, label: string, to: `0x${string}`, resolver: `0x${string}`) {
+async function sponsoredRegister(controller: any, label: string, to: `0x${string}`, resolver: `0x${string}`) {
   const reg = registration(label, to, { resolver })
   await controller.write.commit([await controller.read.makeCommitment([reg])], {
     account: registrar,
   })
-  await sponsor.write.registerWithCredit(
-    await withConsent(connection, sponsor, reg),
-    { account: registrar },
-  )
+  const sponsor = await sponsorOf(connection, controller)
+  await registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
 
 /**
@@ -60,11 +59,11 @@ async function sponsoredRegister({ controller, sponsor }: any, label: string, to
  */
 describe('records do not survive re-registration', () => {
   it('still retires records after the default resolver is rotated', async () => {
-    const { controller, resolver, baseRegistrar, ens, subnameRegistrar, sponsor } =
+    const { controller, resolver, baseRegistrar, ens, subnameRegistrar } =
       await load()
 
     // A name registered against the resolver that is default *today*.
-    await sponsoredRegister({ controller, sponsor }, 'rotated', squatter.address, resolver.address)
+    await sponsoredRegister(controller, 'rotated', squatter.address, resolver.address)
     await resolver.write.setText([node('rotated'), KEY, 'https://smp/squatter'], {
       account: squatter,
     })
@@ -82,7 +81,7 @@ describe('records do not survive re-registration', () => {
     })
 
     await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + GRACE + 1n))
-    await sponsoredRegister({ controller, sponsor }, 'rotated', victim.address, newResolver.address)
+    await sponsoredRegister(controller, 'rotated', victim.address, newResolver.address)
 
     // Testing `stale == defaultResolver` would no-op here and hand the victim a
     // name still resolving to the squatter.
@@ -90,10 +89,10 @@ describe('records do not survive re-registration', () => {
   })
 
   it('a squatter cannot leave their contact link on a name they let lapse', async () => {
-    const { controller, resolver, baseRegistrar, sponsor } = await load()
+    const { controller, resolver, baseRegistrar } = await load()
 
     // the squatter takes the name and points it at themselves
-    await sponsoredRegister({ controller, sponsor }, 'contested', squatter.address, resolver.address)
+    await sponsoredRegister(controller, 'contested', squatter.address, resolver.address)
     await resolver.write.setText(
       [node('contested'), KEY, 'https://smp/squatter'],
       { account: squatter },
@@ -109,7 +108,7 @@ describe('records do not survive re-registration', () => {
     ).toBe(true)
 
     // the victim re-registers it
-    await sponsoredRegister({ controller, sponsor }, 'contested', victim.address, resolver.address)
+    await sponsoredRegister(controller, 'contested', victim.address, resolver.address)
     expect(
       (
         await baseRegistrar.read.ownerOf([BigInt(labelhash('contested'))])
@@ -121,15 +120,15 @@ describe('records do not survive re-registration', () => {
   })
 
   it('clears every key at once, not just the one that was checked', async () => {
-    const { controller, resolver, sponsor } = await load()
-    await sponsoredRegister({ controller, sponsor }, 'manykeys', squatter.address, resolver.address)
+    const { controller, resolver } = await load()
+    await sponsoredRegister(controller, 'manykeys', squatter.address, resolver.address)
     for (const k of ['simplex.contact', 'simplex.channel', 'url', 'avatar']) {
       await resolver.write.setText([node('manykeys'), k, 'stale'], {
         account: squatter,
       })
     }
     await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + GRACE + 1n))
-    await sponsoredRegister({ controller, sponsor }, 'manykeys', victim.address, resolver.address)
+    await sponsoredRegister(controller, 'manykeys', victim.address, resolver.address)
 
     for (const k of ['simplex.contact', 'simplex.channel', 'url', 'avatar']) {
       expect(await resolver.read.text([node('manykeys'), k])).toBe('')
@@ -138,7 +137,7 @@ describe('records do not survive re-registration', () => {
 
   it('does not wipe the records the new registration itself sets', async () => {
     const { controller, resolver, sponsor } = await load()
-    await sponsoredRegister({ controller, sponsor }, 'withdata', squatter.address, resolver.address)
+    await sponsoredRegister(controller, 'withdata', squatter.address, resolver.address)
     await resolver.write.setText([node('withdata'), KEY, 'https://smp/old'], {
       account: squatter,
     })
@@ -159,10 +158,7 @@ describe('records do not survive re-registration', () => {
       [await controller.read.makeCommitment([reg])],
       { account: registrar },
     )
-    await sponsor.write.registerWithCredit(
-      await withConsent(connection, sponsor, reg),
-      { account: registrar },
-    )
+    await registerWithCredit(connection, sponsor, reg, { account: registrar })
 
     // the clear runs before the new records are written, so the new value stands
     expect(await resolver.read.text([node('withdata'), KEY])).toBe(
@@ -171,14 +167,14 @@ describe('records do not survive re-registration', () => {
   })
 
   it('a first registration is unaffected', async () => {
-    const { controller, resolver, sponsor } = await load()
-    await sponsoredRegister({ controller, sponsor }, 'brandnew', victim.address, resolver.address)
+    const { controller, resolver } = await load()
+    await sponsoredRegister(controller, 'brandnew', victim.address, resolver.address)
     expect(await resolver.read.recordVersions([node('brandnew')])).toBe(0n)
   })
 
   it('registerReserved also retires the previous owner records', async () => {
-    const { controller, resolver, ens, sponsor } = await load()
-    await sponsoredRegister({ controller, sponsor }, 'brandname', squatter.address, resolver.address)
+    const { controller, resolver, ens } = await load()
+    await sponsoredRegister(controller, 'brandname', squatter.address, resolver.address)
     await resolver.write.setText(
       [node('brandname'), KEY, 'https://smp/squatter'],
       { account: squatter },
@@ -197,8 +193,8 @@ describe('records do not survive re-registration', () => {
   })
 
   it('the payable path clears too', async () => {
-    const { controller, resolver, sponsor } = await load()
-    await sponsoredRegister({ controller, sponsor }, 'paidagain', squatter.address, resolver.address)
+    const { controller, resolver } = await load()
+    await sponsoredRegister(controller, 'paidagain', squatter.address, resolver.address)
     await resolver.write.setText([node('paidagain'), KEY, 'stale'], {
       account: squatter,
     })
@@ -237,7 +233,7 @@ describe('renewal and availability semantics', () => {
       account: owner,
     })
 
-    await sponsoredRegister({ controller, sponsor }, 'renewprem', victim.address, zeroAddressLocal)
+    await sponsoredRegister(controller, 'renewprem', victim.address, zeroAddressLocal)
     // move to just past expiry, inside grace: registration would owe a premium,
     // renewal must not
     await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + 1n))

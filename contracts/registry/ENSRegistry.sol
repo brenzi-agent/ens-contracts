@@ -34,10 +34,10 @@ contract ENSRegistry is ENS {
     ///      approvals cannot be reordered.
     mapping(address => uint256) public nonces;
 
-    /// SNRC: no node is handed to an address that did not ask for it. A new
-    /// owner must be the caller, except where the parent is the root or a TLD:
-    /// those are assigned by the root key and by the TLD's registrar, which
-    /// check consent themselves. A TLD is marked when the root assigns it.
+    /// SNRC: a node's new owner must be the caller or zero, except for the root
+    /// node and for subnodes of the root or of a TLD, which the root's owner and
+    /// the TLD's owner assign. `setSubnodeOwner` records a node as a TLD when
+    /// its parent is the root.
     mapping(bytes32 => bool) public isTld;
 
     error SignatureExpired();

@@ -5,8 +5,8 @@ import { describe, expect, it } from 'vitest'
 import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
+  registerWithCredit,
   registration,
-  withConsent,
   YEAR,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
@@ -478,10 +478,7 @@ describe('SimplexPriceOracle', () => {
         [await controller.read.makeCommitment([reg])],
         { account: registrar },
       )
-      await sponsor.write.registerWithCredit(
-        await withConsent(connection, sponsor, reg),
-        { account: registrar },
-      )
+      await registerWithCredit(connection, sponsor, reg, { account: registrar })
       expect(
         await sponsor.read.registrarAllowance([registrar.address]),
       ).toBe(

@@ -7,7 +7,7 @@ import {
   deployNamesV2,
   MIN_REGISTRATION,
   registration,
-  withConsent,
+  signRegistration,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
 
@@ -63,7 +63,6 @@ async function fixture() {
   await controller.write.setPublicSalesOpen([true], { account: owner })
   const sponsor = await connection.viem.deployContract('SimplexSponsor', [
     controller.address,
-    f.baseRegistrar.address,
   ])
   await controller.write.setSponsor([sponsor.address], { account: owner })
   await sponsor.write.setRegistrarAllowance(
@@ -155,7 +154,7 @@ describe('reservation vs. registration race', () => {
     )
     await expect(
       sponsor.write.registerWithCredit(
-        await withConsent(connection, sponsor, reg),
+        await signRegistration(connection, sponsor, reg),
         { account: registrar },
       ),
     ).toBeRevertedWithCustomErrorFrom(controller, 'CommitmentTooNew')

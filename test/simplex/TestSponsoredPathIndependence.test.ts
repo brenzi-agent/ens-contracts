@@ -5,8 +5,9 @@ import { describe, expect, it } from 'vitest'
 import {
   AMPLE_ALLOWANCE,
   deployNamesV2,
+  registerWithCredit,
   registration,
-  withConsent,
+  sponsorOf,
   YEAR,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
@@ -34,15 +35,13 @@ async function fixture() {
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
-async function sponsoredRegister({ controller, sponsor }: any, label: string) {
+async function sponsoredRegister(controller: any, label: string) {
   const reg = registration(label, alice.address)
   await controller.write.commit([await controller.read.makeCommitment([reg])], {
     account: registrar,
   })
-  return sponsor.write.registerWithCredit(
-    await withConsent(connection, sponsor, reg),
-    { account: registrar },
-  )
+  const sponsor = await sponsorOf(connection, controller)
+  return registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
 
 /**
@@ -56,7 +55,7 @@ describe('the sponsored path does not depend on the price feed', () => {
     const { controller, baseRegistrar, dummyOracle, sponsor } = await load()
     await dummyOracle.write.set([0n])
 
-    await sponsoredRegister({ controller, sponsor }, 'deadfeed')
+    await sponsoredRegister(controller, 'deadfeed')
     expect(
       (
         await baseRegistrar.read.ownerOf([BigInt(labelhash('deadfeed'))])
@@ -75,7 +74,7 @@ describe('the sponsored path does not depend on the price feed', () => {
     const { controller, dummyOracle, sponsor } = await load()
     await dummyOracle.write.set([0n])
     const before = await sponsor.read.registrarAllowance([registrar.address])
-    await sponsoredRegister({ controller, sponsor }, 'stillpriced')
+    await sponsoredRegister(controller, 'stillpriced')
     expect(
       before - (await sponsor.read.registrarAllowance([registrar.address])),
     ).toBe(yearPriceUSD(11, 2n))
@@ -98,7 +97,7 @@ describe('the sponsored path does not depend on the price feed', () => {
 
   it('credited registration emits a zero cost — nothing was paid on-chain', async () => {
     const { controller, sponsor } = await load()
-    const hash = await sponsoredRegister({ controller, sponsor }, 'zerocost')
+    const hash = await sponsoredRegister(controller, 'zerocost')
     const receipt = await publicClient.getTransactionReceipt({ hash })
 
     const registered = parseEventLogs({
@@ -120,7 +119,7 @@ describe('the sponsored path does not depend on the price feed', () => {
 
   it('credited renewal emits a zero cost too', async () => {
     const { controller, sponsor } = await load()
-    await sponsoredRegister({ controller, sponsor }, 'renewevent')
+    await sponsoredRegister(controller, 'renewevent')
     const hash = await sponsor.write.renewWithCredit(
       ['renewevent', YEAR, zeroHash],
       { account: registrar },

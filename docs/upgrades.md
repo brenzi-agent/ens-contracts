@@ -5,7 +5,7 @@
 the implementation behind a proxy whose storage persists — so the new
 implementation **must keep the exact storage layout** of the old one, only
 appending. Get this wrong and existing values (prices, reserved names, the
-registrar allowances, …) silently read from the wrong slots.
+sponsor, …) silently read from the wrong slots.
 
 Upgradeability is not permanent. `freeze()` is one-way and makes
 `_authorizeUpgrade` revert `Frozen`, which is what fixes the implementation at
@@ -30,18 +30,21 @@ this contract's own variables start well past slot 250. After them come
 ```solidity
 address public beneficiary;                        // packs with `frozen`
 bool    public frozen;
-mapping(address => uint256) private _unusedRegistrarAllowance;
+address public sponsor;
 address public defaultResolver;                    // packs with `publicSalesOpen`
 bool    public publicSalesOpen;
 mapping(address => bool) public wasDefaultResolver;
-address public sponsor;
 
-uint256[43] private __gap;   // shrinks as state is added
+uint256[44] private __gap;   // shrinks as state is added
 ```
 
 `__gap` was `[50]`; `[49]` when `priceOracleFrozen` landed, `[48]` with
-`_reentrancyStatus`, `[44]` with the four names-v2 slots, and `[43]` with
-`sponsor`. It is the budget for future state.
+`_reentrancyStatus`, and `[44]` with the four names-v2 slots. It is the budget
+for future state.
+
+`sponsor` reuses the slot of names-v2's `registrarAllowance`, which no deployed
+proxy has held; a mapping's own slot is never written, so it reads as zero under
+either type. This is the one sanctioned exception to invariant 2.
 
 **Reserved slots.** Two kinds of placeholder exist, and both are deliberate:
 
@@ -51,10 +54,8 @@ uint256[43] private __gap;   // shrinks as state is added
   otherwise end registration and renewal forever.
 - `_unusedReverseRegistrar`, `_unusedDefaultReverseRegistrar` — were the two
   reverse-registrar references, kept when reverse resolution was removed.
-- `_unusedRegistrarAllowance` — was `registrarAllowance`, kept when the sponsored
-  path moved to `SimplexSponsor`.
 
-None is written by anything. They exist so removing a feature does not shift
+Neither is written by anything. They exist so removing a feature does not shift
 every slot below it, and so the feature can be reintroduced by re-typing the slot
 rather than migrating storage. **Removing a variable is not a substitute for
 reserving its slot** — see invariant 2.
@@ -109,7 +110,7 @@ Same slot count, same slot size. `__gap` is untouched.
       (old vs new) / Hardhat's `storageLayout` build output.
 - [ ] **Run the V2 upgrade test** (issue #9): deploy V1 behind a proxy, populate
       state (reserved names, min char length, NFT gate, oracle, beneficiary,
-      registrar allowances, the sales switch), upgrade to V2, and assert every V1
+      the sponsor, the sales switch), upgrade to V2, and assert every V1
       value survives unchanged and the new behaviour works.
 - [ ] **Run `test/simplex/TestControllerStorageLayout.test.ts`.** It reads raw
       slots from a deployed proxy and asserts the packing and the reserved slots
