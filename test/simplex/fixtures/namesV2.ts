@@ -221,6 +221,7 @@ export const eip712Types = {
   RegisterName: [
     { name: 'label', type: 'string' },
     { name: 'owner', type: 'address' },
+    { name: 'duration', type: 'uint256' },
     { name: 'resolver', type: 'address' },
     { name: 'data', type: 'bytes[]' },
     { name: 'nonce', type: 'uint256' },
@@ -279,6 +280,7 @@ export async function signRegistration<
   R extends {
     label: string
     owner: `0x${string}`
+    duration: bigint
     resolver: `0x${string}`
     data: readonly `0x${string}`[]
   },
@@ -304,6 +306,7 @@ export async function signRegistration<
     {
       label: reg.label,
       owner: reg.owner,
+      duration: reg.duration,
       resolver: reg.resolver,
       data: reg.data,
       nonce,
