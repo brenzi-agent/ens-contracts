@@ -42,6 +42,8 @@ contract SimplexController is
 
     uint256 public constant MIN_REGISTRATION_DURATION = 730 days;
     uint256 public constant MIN_RENEWAL_DURATION = 365 days;
+    uint256 public constant MAX_REGISTRATION_DURATION = 1095 days;
+    uint256 public constant MAX_SPONSORED_REGISTRATION_DURATION = 3650 days;
 
     // Manual reentrancy guard (see `_reentrancyStatus` + `nonReentrant`).
     // Implemented by hand rather than inheriting ReentrancyGuardUpgradeable so
@@ -105,6 +107,7 @@ contract SimplexController is
     error NameNotAvailable(string name);
     error ReasonRequired();
     error DurationTooShort(uint256 duration);
+    error DurationTooLong(uint256 duration);
     error ResolverRequiredWhenDataSupplied();
     error ReverseRecordNotSupported();
     error UnexpiredCommitmentExists(bytes32 commitment);
@@ -379,6 +382,7 @@ contract SimplexController is
         if (reservedNames[labelhash] == Reason.None)
             revert NameNotReserved(label);
         if (duration < MIN_REGISTRATION_DURATION) revert DurationTooShort(duration);
+        if (duration > MAX_SPONSORED_REGISTRATION_DURATION) revert DurationTooLong(duration);
 
         bytes32 namehash = keccak256(abi.encodePacked(tldNode, labelhash));
         _retireStaleRecords(namehash);
@@ -519,6 +523,8 @@ contract SimplexController is
     ) public payable override nonReentrant {
         if (!publicSalesOpen) revert PublicSalesClosed();
         if (registration.owner != msg.sender) revert OwnerMustBeCaller();
+        if (registration.duration > MAX_REGISTRATION_DURATION)
+            revert DurationTooLong(registration.duration);
         _checkSimplexGates(registration.label, true);
 
         bytes32 labelhash = keccak256(bytes(registration.label));
@@ -544,6 +550,8 @@ contract SimplexController is
     function registerSponsored(
         Registration calldata registration
     ) external onlySponsor nonReentrant {
+        if (registration.duration > MAX_SPONSORED_REGISTRATION_DURATION)
+            revert DurationTooLong(registration.duration);
         _checkSimplexGates(registration.label, false);
 
         bytes32 labelhash = keccak256(bytes(registration.label));
@@ -647,7 +655,7 @@ contract SimplexController is
         IPriceOracle.Price memory price = _rentPrice(label, labelhash, duration);
         if (msg.value < price.base) revert InsufficientValue();
 
-        _renewCore(label, labelhash, duration, price.base, referrer);
+        _renewCore(label, labelhash, duration, price.base, referrer, MAX_REGISTRATION_DURATION);
 
         if (msg.value > price.base) {
             (bool ok, ) = payable(msg.sender).call{value: msg.value - price.base}("");
@@ -663,7 +671,7 @@ contract SimplexController is
     ) external onlySponsor nonReentrant {
         bytes32 labelhash = keccak256(bytes(label));
         // zero cost, and no feed read — see `registerSponsored`
-        _renewCore(label, labelhash, duration, 0, referrer);
+        _renewCore(label, labelhash, duration, 0, referrer, MAX_SPONSORED_REGISTRATION_DURATION);
     }
 
     function _renewCore(
@@ -671,11 +679,13 @@ contract SimplexController is
         bytes32 labelhash,
         uint256 duration,
         uint256 cost,
-        bytes32 referrer
+        bytes32 referrer,
+        uint256 horizon
     ) private returns (uint256 expires) {
         if (duration < MIN_RENEWAL_DURATION) revert DurationTooShort(duration);
 
         expires = base.renew(uint256(labelhash), duration);
+        if (expires > block.timestamp + horizon) revert DurationTooLong(duration);
 
         emit NameRenewed(label, labelhash, cost, expires, referrer);
     }

@@ -275,6 +275,49 @@ describe('registrar allowance', () => {
     )
   })
 
+  it('registers for up to ten years, not a second more', async () => {
+    const { controller, sponsor } = await load()
+    await sponsor.write.setRegistrarAllowance(
+      [registrar.address, AMPLE_ALLOWANCE],
+      { account: guardian },
+    )
+    await sponsoredRegister(
+      controller,
+      registration('tenyears', alice.address, { duration: 10n * YEAR }),
+    )
+
+    const tooLong = registration('elevenyrs', alice.address, {
+      duration: 10n * YEAR + 1n,
+    })
+    await controller.write.commit(
+      [await controller.read.makeCommitment([tooLong])],
+      { account: registrar },
+    )
+    await expect(
+      sponsor.write.registerWithCredit(
+        await signRegistration(connection, sponsor, tooLong),
+        { account: registrar },
+      ),
+    ).toBeRevertedWithCustomErrorFrom(controller, 'DurationTooLong')
+  })
+
+  it('renews up to ten years out, not further', async () => {
+    const { controller, sponsor } = await load()
+    await sponsor.write.setRegistrarAllowance(
+      [registrar.address, AMPLE_ALLOWANCE],
+      { account: guardian },
+    )
+    await sponsoredRegister(controller, registration('decade', alice.address))
+    await sponsor.write.renewWithCredit(['decade', 8n * YEAR, zeroHash], {
+      account: registrar,
+    })
+    await expect(
+      sponsor.write.renewWithCredit(['decade', YEAR, zeroHash], {
+        account: registrar,
+      }),
+    ).toBeRevertedWithCustomErrorFrom(controller, 'DurationTooLong')
+  })
+
   it('the guardian can zero an allowance in one transaction', async () => {
     const { sponsor } = await load()
     await sponsor.write.setRegistrarAllowance(

@@ -100,12 +100,12 @@ describe('public sales switch', () => {
     await creditedRegister(controller, 'renewany')
     expect(await controller.read.publicSalesOpen()).toBe(false)
 
-    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash], {
-      account: registrar,
-    })
     await controller.write.renew(['renewany', YEAR, zeroHash], {
       account: alice,
       value: YEAR_PRICE_USD,
+    })
+    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash], {
+      account: registrar,
     })
   })
 

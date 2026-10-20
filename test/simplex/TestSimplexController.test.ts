@@ -62,6 +62,7 @@ async function deploySimplexControllerProxy(args: {
 }
 
 const REGISTRATION_TIME = 730n * DAY
+const RENEWAL_TIME = 365n * DAY
 const GRACE_PERIOD = 90n * DAY
 
 const connection = await hre.network.connect()
@@ -1204,8 +1205,8 @@ describe('SimplexController', () => {
       await commitAndRegister(controller, 'renewme', registrantAccount)
       const id = BigInt(labelhash('renewme'))
       const before = await baseRegistrar.read.nameExpires([id])
-      const price = await controller.read.rentPrice(['renewme', REGISTRATION_TIME])
-      await controller.write.renew(['renewme', REGISTRATION_TIME, zeroHash], {
+      const price = await controller.read.rentPrice(['renewme', RENEWAL_TIME])
+      await controller.write.renew(['renewme', RENEWAL_TIME, zeroHash], {
         account: registrantAccount,
         value: price.base,
       })
@@ -1270,8 +1271,8 @@ describe('SimplexController', () => {
       const { controller } = await loadFixture()
       await commitAndRegister(controller, 'renewexcess', registrantAccount)
       const balBefore = await publicClient.getBalance({ address: controller.address })
-      const price = await controller.read.rentPrice(['renewexcess', REGISTRATION_TIME])
-      await controller.write.renew(['renewexcess', REGISTRATION_TIME, zeroHash], {
+      const price = await controller.read.rentPrice(['renewexcess', RENEWAL_TIME])
+      await controller.write.renew(['renewexcess', RENEWAL_TIME, zeroHash], {
         account: registrantAccount,
         value: price.base + 12345n,
       })
@@ -1285,12 +1286,71 @@ describe('SimplexController', () => {
       await controller.write.addReservedNames([['reservedrenew'], TRADEMARK], { account: ownerAccount })
       const id = BigInt(labelhash('reservedrenew'))
       const before = await baseRegistrar.read.nameExpires([id])
-      const price = await controller.read.rentPrice(['reservedrenew', REGISTRATION_TIME])
-      await controller.write.renew(['reservedrenew', REGISTRATION_TIME, zeroHash], {
+      const price = await controller.read.rentPrice(['reservedrenew', RENEWAL_TIME])
+      await controller.write.renew(['reservedrenew', RENEWAL_TIME, zeroHash], {
         account: registrantAccount,
         value: price.base,
       })
       expect((await baseRegistrar.read.nameExpires([id])) > before).toBe(true)
+    })
+  })
+
+  describe('Maximum duration', () => {
+    it('register accepts exactly three years', async () => {
+      const { controller, baseRegistrar } = await loadFixture()
+      const registration = mkReg({ label: 'threeyears', duration: 1095n * DAY })
+      await commitWait(controller, registration)
+      await controller.write.register([registration], {
+        account: registrantAccount,
+        value: await totalPrice(controller, 'threeyears', 1095n * DAY),
+      })
+      const tokenOwner = await baseRegistrar.read.ownerOf([
+        BigInt(labelhash('threeyears')),
+      ])
+      expect(tokenOwner.toLowerCase()).toBe(
+        registrantAccount.address.toLowerCase(),
+      )
+    })
+
+    it('register refuses a day over three years', async () => {
+      const { controller } = await loadFixture()
+      const registration = mkReg({ label: 'toolongname', duration: 1096n * DAY })
+      await commitWait(controller, registration)
+      await expect(
+        controller.write.register([registration], {
+          account: registrantAccount,
+          value: await totalPrice(controller, 'toolongname', 1096n * DAY),
+        }),
+      ).toBeRevertedWithCustomError('DurationTooLong')
+    })
+
+    it('registerReserved accepts ten years and refuses a day more', async () => {
+      const { controller } = await loadFixture()
+      await controller.write.addReservedNames([['brandname'], TRADEMARK], {
+        account: ownerAccount,
+      })
+      await expect(
+        controller.write.registerReserved(
+          ['brandname', registrantAccount.address, 3651n * DAY],
+          { account: ownerAccount },
+        ),
+      ).toBeRevertedWithCustomError('DurationTooLong')
+      await controller.write.registerReserved(
+        ['brandname', registrantAccount.address, 3650n * DAY],
+        { account: ownerAccount },
+      )
+    })
+
+    it('renew refuses to push the expiry more than three years out', async () => {
+      const { controller } = await loadFixture()
+      await commitAndRegister(controller, 'farrenew', registrantAccount)
+      const price = await controller.read.rentPrice(['farrenew', RENEWAL_TIME + DAY])
+      await expect(
+        controller.write.renew(['farrenew', RENEWAL_TIME + DAY, zeroHash], {
+          account: registrantAccount,
+          value: price.base,
+        }),
+      ).toBeRevertedWithCustomError('DurationTooLong')
     })
   })
 
@@ -1520,9 +1580,9 @@ describe('SimplexController', () => {
         account: rejecter.address,
         value: total, // exact — no refund, so register succeeds
       })
-      const price = await controller.read.rentPrice(['renewfail', REGISTRATION_TIME])
+      const price = await controller.read.rentPrice(['renewfail', RENEWAL_TIME])
       await expect(
-        controller.write.renew(['renewfail', REGISTRATION_TIME, zeroHash], {
+        controller.write.renew(['renewfail', RENEWAL_TIME, zeroHash], {
           account: rejecter.address,
           value: price.base + 1_000_000n, // excess → refund fails
         }),
