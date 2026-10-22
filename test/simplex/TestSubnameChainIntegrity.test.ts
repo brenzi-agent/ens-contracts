@@ -22,8 +22,8 @@ const publicClient = await connection.viem.getPublicClient()
 const [ownerClient, aliceClient, bobClient] =
   await connection.viem.getWalletClients()
 const ownerAccount = ownerClient.account // stands in as BaseRegistrar
-const aliceAccount = aliceClient.account // the former holder
-const bobAccount = bobClient.account // the next holder
+const aliceAccount = aliceClient.account
+const bobAccount = bobClient.account
 
 const TLD_NODE = namehash('testing')
 const ALICE_NODE = namehash('alice.testing')
@@ -77,7 +77,6 @@ const transferToBob = ({ ensRegistry }: Fixture) =>
     bobAccount.address,
   ])
 
-// The name lapses and bob registers it: the generation moves on.
 const reregisterToBob = async (f: Fixture) => {
   await f.subnames.write.onReregister([ALICE_NODE], { account: ownerAccount })
   await transferToBob(f)
@@ -137,7 +136,7 @@ describe('SubnameRegistrar chain integrity', () => {
     ).rejects.toThrow('NotParentOwner')
   })
 
-  it('a pulled-out subname and everything under it stop counting, and re-adopting it does not revive the subtree', async () => {
+  it('a pulled-out subname and everything under it stop counting, and re-creating it does not restore the subtree', async () => {
     const f = await loadFixture()
     const help = subnode(ALICE_NODE, 'help')
     const support = subnode(help, 'support')
@@ -178,7 +177,7 @@ describe('SubnameRegistrar chain integrity', () => {
     ).rejects.toThrow('NotParentOwner')
   })
 
-  it('re-creating a deleted middle subname does not revive its old children, and purge retires them', async () => {
+  it('re-creating a deleted middle subname does not restore its old children, and purge retires them', async () => {
     const f = await loadFixture()
     const team = subnode(ALICE_NODE, 'team')
     const support = subnode(team, 'support')
@@ -208,7 +207,7 @@ describe('SubnameRegistrar chain integrity', () => {
     expect(await f.resolver.read.text([support, 'simplex.contact'])).toBe('')
   })
 
-  it('taking over a node the registrar did not own clears its records', async () => {
+  it('creating over a node the registrar did not own clears its records', async () => {
     const f = await loadFixture()
     const support = subnode(ALICE_NODE, 'support')
     await f.ensRegistry.write.setSubnodeRecord(

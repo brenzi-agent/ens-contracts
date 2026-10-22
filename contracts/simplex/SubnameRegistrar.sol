@@ -43,14 +43,10 @@ contract SubnameRegistrar is ISubnameRegistrar {
 
     /// @dev subname node => parent node (for the ownerOf walk-up).
     mapping(bytes32 => bytes32) public parentOf;
-    /// @dev subname node => its parent's epoch when it was created: the 2LD's
-    ///      generation for a child of a 2LD, the parent's `epoch` otherwise.
+    /// @dev subname node => its parent's generation when it was created.
     mapping(bytes32 => uint256) public generationAt;
-    /// @dev subname node => incarnation, bumped each time this contract adopts
-    ///      the node (creates it, or takes it back after it was deleted or pulled
-    ///      out), so descendants bound to an earlier incarnation stay dead.
-    mapping(bytes32 => uint256) public epoch;
-    /// @dev 2LD node => current generation (bumped on re-registration).
+    /// @dev node => current generation (bumped on re-registration of a 2LD, and
+    ///      on each creation of a subname this contract did not own).
     mapping(bytes32 => uint256) public generation;
     /// @dev 2LD node => registration expiry, mirrored from BaseRegistrar.
     ///      Registry ownership of a 2LD survives expiry — nothing clears it
@@ -132,37 +128,13 @@ contract SubnameRegistrar is ISubnameRegistrar {
     ///         2LD NFT, found by walking up the parent chain to the 2LD node
     ///         (whose registry owner tracks the NFT via auto-reclaim). Returns
     ///         address(0) for an untracked node, a generation-dead subname, or
-    ///         one whose chain up to the 2LD is broken (see `_liveRoot`).
+    ///         one whose chain up to the 2LD is broken (see `_intactRoot`).
     ///         This is the function the PublicResolver's wrapper hook calls to
     ///         authorise subname records.
     function ownerOf(uint256 node) public view returns (address) {
         bytes32 n = bytes32(node);
         if (parentOf[n] == bytes32(0)) return address(0);
-        bytes32 root = _liveRoot(n);
-        if (root == bytes32(0)) return address(0); // dead or cut off
-        if (_lapsed(root)) return address(0); // parent 2LD expired
-        return ens.owner(root);
-    }
-
-    /// @dev The 2LD at the root of `node`'s chain if every link is intact: each
-    ///      subname on the way up is still owned by this contract and was created
-    ///      under its parent's current epoch. bytes32(0) otherwise, which covers a
-    ///      re-registered 2LD, a deleted or re-created ancestor, and an ancestor
-    ///      pulled out of this contract in the registry.
-    function _liveRoot(bytes32 node) internal view returns (bytes32) {
-        bytes32 n = node;
-        while (parentOf[n] != bytes32(0)) {
-            bytes32 p = parentOf[n];
-            if (ens.owner(n) != address(this) || generationAt[n] != _epochOf(p))
-                return bytes32(0);
-            n = p;
-        }
-        return expiryOf[n] == 0 ? bytes32(0) : n;
-    }
-
-    /// @dev A 2LD's generation, or a subname's epoch.
-    function _epochOf(bytes32 node) internal view returns (uint256) {
-        return parentOf[node] == bytes32(0) ? generation[node] : epoch[node];
+        return _controller(n);
     }
 
     /// @dev Whether 2LD `root` is past its registration expiry. Matches the
@@ -174,17 +146,29 @@ contract SubnameRegistrar is ISubnameRegistrar {
         return exp != 0 && block.timestamp > exp;
     }
 
-    /// @dev Who may manage subnames under `node`: for a registered 2LD, its
-    ///      registry owner (= NFT holder via auto-reclaim); for a tracked
-    ///      subname, its effective NFT holder; for any other node, nobody.
+    /// @dev The registered 2LD at the root of `node`'s parent chain if every
+    ///      link is intact: each subname on the way up is owned by this contract
+    ///      and was created under its parent's current generation. bytes32(0)
+    ///      otherwise.
+    function _intactRoot(bytes32 node) internal view returns (bytes32) {
+        bytes32 n = node;
+        while (parentOf[n] != bytes32(0)) {
+            bytes32 p = parentOf[n];
+            if (
+                ens.owner(n) != address(this) || generationAt[n] != generation[p]
+            ) return bytes32(0);
+            n = p;
+        }
+        return expiryOf[n] == 0 ? bytes32(0) : n;
+    }
+
+    /// @dev Who may manage subnames under `node`: for a 2LD, its registry owner
+    ///      (= NFT holder via auto-reclaim); for a subname (owned by this
+    ///      contract), its effective NFT holder.
     function _controller(bytes32 node) internal view returns (address) {
-        if (parentOf[node] != bytes32(0)) return ownerOf(uint256(node));
-        // Otherwise only a registered 2LD has a controller: its registry owner,
-        // gated on the mirrored expiry because registry ownership outlives the
-        // registration. Any other node, such as one a former holder made directly
-        // in the registry, has none.
-        if (expiryOf[node] == 0 || _lapsed(node)) return address(0);
-        return ens.owner(node);
+        bytes32 root = _intactRoot(node);
+        if (root == bytes32(0) || _lapsed(root)) return address(0);
+        return ens.owner(root);
     }
 
     // ---------- create / delete ----------
@@ -193,7 +177,8 @@ contract SubnameRegistrar is ISubnameRegistrar {
     ///         the parent's 2LD NFT. The caller must be the effective owner of
     ///         `parentNode` and, for a 2LD parent, have approved this contract as
     ///         a registry operator (`ens.setApprovalForAll(subnameRegistrar,
-    ///         true)`). Re-running it on a generation-dead subname revives it.
+    ///         true)`). Reverts on a subname this contract owns that was created
+    ///         under an earlier generation of its parent; `purge` it first.
     function createSubname(
         bytes32 parentNode,
         string calldata label
@@ -240,28 +225,24 @@ contract SubnameRegistrar is ISubnameRegistrar {
         // would silently inherit a name resolving to someone else's address.
         // `purge` retires the records and the index entry; creating afterwards
         // starts from nothing.
-        bool adopted = ens.owner(node) != address(this);
+        bool owned = ens.owner(node) == address(this);
         if (
-            !adopted &&
+            owned &&
             parentOf[node] != bytes32(0) &&
-            generationAt[node] != _epochOf(parentNode)
+            generationAt[node] != generation[parentNode]
         ) revert StaleSubnameMustBePurged(node);
 
         // Owned by this contract, with the resolver set so records resolve; the
         // PublicResolver then authorises those records against ownerOf(node).
         ens.setSubnodeRecord(parentNode, labelhash, address(this), resolver, 0);
-        if (adopted) {
-            // A node taken over from anyone else starts empty, and as a new
-            // incarnation, so nothing left under its earlier one comes back.
+        if (!owned) {
             if (resolver != address(0))
                 ISubnameRecordClearer(resolver).clearSubnameRecords(node);
-            unchecked {
-                ++epoch[node];
-            }
+            ++generation[node];
         }
 
         parentOf[node] = parentNode;
-        generationAt[node] = _epochOf(parentNode);
+        generationAt[node] = generation[parentNode];
         if (!childIndexed[node]) {
             childIndexed[node] = true;
             _children[parentNode].push(labelhash);
@@ -353,12 +334,11 @@ contract SubnameRegistrar is ISubnameRegistrar {
         }
     }
 
-    /// @notice Permissionless garbage collection: delete dead subnames (left
-    ///         over after the parent 2LD was re-registered, or cut off by a
-    ///         deleted, re-created or pulled-out ancestor), reclaiming their
-    ///         registry + index storage. Subnames of a 2LD that has merely lapsed
-    ///         are kept, so a renewal in the grace period keeps them. Caller
-    ///         picks the batch.
+    /// @notice Permissionless garbage collection: delete subnames whose chain up
+    ///         to the 2LD is broken (as after the parent 2LD was re-registered),
+    ///         reclaiming their registry + index storage. A lapsed 2LD's
+    ///         subnames are kept, so a renewal restores them. Caller picks the
+    ///         batch.
     function purge(
         bytes32 parentNode,
         bytes32[] calldata labelhashes
@@ -368,7 +348,7 @@ contract SubnameRegistrar is ISubnameRegistrar {
                 abi.encodePacked(parentNode, labelhashes[i])
             );
             if (parentOf[node] == bytes32(0)) continue; // untracked
-            if (_liveRoot(node) != bytes32(0)) continue; // still live
+            if (_intactRoot(node) != bytes32(0)) continue;
             _clear(parentNode, node, labelhashes[i]);
         }
     }

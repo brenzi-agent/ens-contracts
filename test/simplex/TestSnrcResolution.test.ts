@@ -82,8 +82,8 @@ async function fixture() {
     ensRegistry.address,
     ownerAccount.address,
   ])
-  // The verbatim PublicResolver, wired with nameWrapper = subnames so it
-  // authorises subname records against subnames.ownerOf.
+  // SimplexResolver, wired with nameWrapper = subnames so it authorises
+  // subname records against subnames.ownerOf.
   const resolver = await connection.viem.deployContract('SimplexResolver', [
     ensRegistry.address,
     subnames.address,

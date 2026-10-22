@@ -12,14 +12,15 @@ interface ISubnameRegistrar {
 
     function deleteSubname(bytes32 parentNode, string calldata label) external;
 
-    /// @notice Permissionless GC of generation-dead subnames.
+    /// @notice Permissionless GC of subnames whose chain up to the 2LD is broken.
     function purge(
         bytes32 parentNode,
         bytes32[] calldata labelhashes
     ) external;
 
     /// @notice Effective owner of a subname node (the 2LD NFT holder); 0 if
-    ///         untracked or generation-dead. Used by the resolver's wrapper hook.
+    ///         untracked or its chain up to the 2LD is broken. Used by the
+    ///         resolver's wrapper hook.
     function ownerOf(uint256 node) external view returns (address);
 
     function childrenLength(
