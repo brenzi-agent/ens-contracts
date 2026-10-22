@@ -1,18 +1,29 @@
 import hre from 'hardhat'
-import { labelhash, zeroAddress } from 'viem'
+import { labelhash, parseEventLogs, zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { deployNamesV2, MIN_REGISTRATION, node } from './fixtures/namesV2.js'
+import {
+  AMPLE_ALLOWANCE,
+  deployNamesV2,
+  MIN_REGISTRATION,
+  node,
+  YEAR,
+} from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
+const NONE = 0 // SimplexController.Reason.None
 const TRADEMARK = 2 // SimplexController.Reason.Trademark
+const GRACE_PERIOD = 90n * DAY
 
 const connection = await hre.network.connect()
-const [ownerClient, guardianClient, , brandClient] =
+const publicClient = await connection.viem.getPublicClient()
+const [ownerClient, guardianClient, , brandClient, claimantClient, registrarClient] =
   await connection.viem.getWalletClients()
 const owner = ownerClient.account
 const guardian = guardianClient.account
 const brand = brandClient.account
+const claimant = claimantClient.account
+const registrar = registrarClient.account
 
 async function fixture() {
   return deployNamesV2(connection, {
@@ -79,6 +90,41 @@ describe('registerReserved', () => {
     expect((await ens.read.resolver([node('brandname')])).toLowerCase()).toBe(
       resolver.address.toLowerCase(),
     )
+  })
+
+  it('releases the reservation, so the brand renews like any holder', async () => {
+    const { controller, baseRegistrar } = await load()
+    await controller.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
+    const hash = await controller.write.registerReserved(
+      ['brandname', brand.address, MIN_REGISTRATION],
+      { account: owner },
+    )
+    const removed = parseEventLogs({
+      abi: controller.abi,
+      eventName: 'ReservedNameRemoved',
+      logs: (await publicClient.waitForTransactionReceipt({ hash })).logs,
+    })
+    expect(removed.map((log) => log.args.name)).toEqual(['brandname'])
+    expect(await controller.read.reservedNames([labelhash('brandname')])).toBe(NONE)
+
+    const id = BigInt(labelhash('brandname'))
+    const before = await baseRegistrar.read.nameExpires([id])
+    const price = await controller.read.rentPrice(['brandname', YEAR])
+    await controller.write.renew(['brandname', YEAR, zeroHash], {
+      account: brand,
+      value: price.base,
+    })
+    expect(await baseRegistrar.read.nameExpires([id])).toBe(before + YEAR)
+  })
+
+  it('releases the reservation on the bare path too', async () => {
+    const { controller } = await load()
+    await controller.write.setDefaultResolver([zeroAddress], { account: owner })
+    await controller.write.addReservedNames([['noresolver'], TRADEMARK], { account: owner })
+    await controller.write.registerReserved(['noresolver', brand.address, MIN_REGISTRATION], {
+      account: owner,
+    })
+    expect(await controller.read.reservedNames([labelhash('noresolver')])).toBe(NONE)
   })
 
   it('the brand can then have records relayed without ever holding ETH', async () => {
@@ -181,5 +227,64 @@ describe('registerReserved', () => {
       brand.address.toLowerCase(),
     )
     expect(BigInt(await ens.read.resolver([node('noresolver')]))).toBe(0n)
+  })
+})
+
+describe('a disputed name', () => {
+  const disputed = async () => {
+    const f = await load()
+    await f.controller.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
+    await f.controller.write.registerReserved(['brandname', brand.address, MIN_REGISTRATION], {
+      account: owner,
+    })
+    await f.controller.write.addReservedNames([['brandname'], TRADEMARK], { account: guardian })
+    return f
+  }
+
+  it('cannot be renewed once the guardian reserves it again', async () => {
+    const { controller } = await disputed()
+    const price = await controller.read.rentPrice(['brandname', YEAR])
+    await expect(
+      controller.write.renew(['brandname', YEAR, zeroHash], {
+        account: brand,
+        value: price.base,
+      }),
+    ).toBeRevertedWithCustomError('NameReserved')
+  })
+
+  it('cannot be renewed on credit either', async () => {
+    const { sponsor } = await disputed()
+    await sponsor.write.setRegistrarAllowance([registrar.address, AMPLE_ALLOWANCE], {
+      account: guardian,
+    })
+    await expect(
+      sponsor.write.renewWithCredit(['brandname', YEAR, zeroHash], { account: registrar }),
+    ).rejects.toThrow('NameReserved')
+  })
+
+  it('renews again once the admin releases it', async () => {
+    const { controller, baseRegistrar } = await disputed()
+    await controller.write.removeReservedNames([['brandname']], { account: owner })
+    const id = BigInt(labelhash('brandname'))
+    const before = await baseRegistrar.read.nameExpires([id])
+    const price = await controller.read.rentPrice(['brandname', YEAR])
+    await controller.write.renew(['brandname', YEAR, zeroHash], {
+      account: brand,
+      value: price.base,
+    })
+    expect(await baseRegistrar.read.nameExpires([id])).toBe(before + YEAR)
+  })
+
+  it('stays reserved after it expires, and the admin hands it to the rightful claimant', async () => {
+    const { controller, baseRegistrar } = await disputed()
+    await connection.networkHelpers.time.increase(MIN_REGISTRATION + GRACE_PERIOD + 1n)
+    expect(await controller.read.available(['brandname'])).toBe(false)
+
+    await controller.write.registerReserved(['brandname', claimant.address, MIN_REGISTRATION], {
+      account: owner,
+    })
+    expect(
+      (await baseRegistrar.read.ownerOf([BigInt(labelhash('brandname'))])).toLowerCase(),
+    ).toBe(claimant.address.toLowerCase())
   })
 })

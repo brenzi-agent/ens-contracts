@@ -383,6 +383,8 @@ contract SimplexController is
             revert NameNotReserved(label);
         if (duration < MIN_REGISTRATION_DURATION) revert DurationTooShort(duration);
         if (duration > MAX_SPONSORED_REGISTRATION_DURATION) revert DurationTooLong(duration);
+        delete reservedNames[labelhash];
+        emit ReservedNameRemoved(label);
 
         bytes32 namehash = keccak256(abi.encodePacked(tldNode, labelhash));
         _retireStaleRecords(namehash);
@@ -683,6 +685,7 @@ contract SimplexController is
         uint256 horizon
     ) private returns (uint256 expires) {
         if (duration < MIN_RENEWAL_DURATION) revert DurationTooShort(duration);
+        if (reservedNames[labelhash] != Reason.None) revert NameReserved(label);
 
         expires = base.renew(uint256(labelhash), duration);
         if (expires > block.timestamp + horizon) revert DurationTooLong(duration);
