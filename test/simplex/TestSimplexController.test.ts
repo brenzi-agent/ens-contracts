@@ -1280,7 +1280,7 @@ describe('SimplexController', () => {
       expect(balAfter - balBefore).toBe(price.base)
     })
 
-    it('renew refuses a now-reserved name', async () => {
+    it('renew reverts NameReserved on a now-reserved name', async () => {
       const { controller } = await loadFixture()
       await commitAndRegister(controller, 'reservedrenew', registrantAccount)
       await controller.write.addReservedNames([['reservedrenew'], TRADEMARK], { account: ownerAccount })

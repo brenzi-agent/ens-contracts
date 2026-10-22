@@ -330,6 +330,7 @@ contract SimplexController is
         emit MinCharLengthChanged(newMinCharLength);
     }
 
+    /// @notice Also stops the renewal of a registered name.
     /// @param reason `Reason.None` is refused: it is the value that means "not
     ///        reserved", so it would make this function silently unreserve.
     function addReservedNames(
@@ -373,6 +374,7 @@ contract SimplexController is
     ///         and the brand's later record edits can be relayed — a brand never
     ///         has to hold ETH. `setSubnodeOwner` alone sets an owner but not a
     ///         resolver, so without this the name would not resolve at all.
+    ///         Releases the reservation, so the name renews like any other.
     function registerReserved(
         string calldata label,
         address owner,
@@ -383,6 +385,7 @@ contract SimplexController is
             revert NameNotReserved(label);
         if (duration < MIN_REGISTRATION_DURATION) revert DurationTooShort(duration);
         if (duration > MAX_SPONSORED_REGISTRATION_DURATION) revert DurationTooLong(duration);
+
         delete reservedNames[labelhash];
         emit ReservedNameRemoved(label);
 
