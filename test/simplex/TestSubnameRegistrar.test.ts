@@ -52,6 +52,7 @@ async function fixture() {
     zeroAddress,
   ])
   await subnames.write.setResolver([resolver.address])
+  await subnames.write.onExpiryChanged([ALICE_NODE, 2n ** 64n], { account: ownerAccount })
   return { ensRegistry, subnames, resolver }
 }
 

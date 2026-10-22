@@ -46,6 +46,7 @@ async function fixture() {
   await ensRegistry.write.setApprovalForAll([subnames.address, true], {
     account: aliceAccount,
   })
+  await subnames.write.onExpiryChanged([ALICE_NODE, 2n ** 64n], { account: ownerAccount })
   return { ensRegistry, subnames }
 }
 const loadFixture = async () => connection.networkHelpers.loadFixture(fixture)
