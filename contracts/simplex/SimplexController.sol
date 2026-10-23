@@ -15,6 +15,7 @@ import {Resolver} from "../resolvers/Resolver.sol";
 import {ENS} from "../registry/ENS.sol";
 import {IETHRegistrarController, IPriceOracle} from "../ethregistrar/IETHRegistrarController.sol";
 import {IPriceOracleUSD} from "../ethregistrar/IPriceOracleUSD.sol";
+import {IBonaFideTerms, IBonaFideTermsBinding} from "./IBonaFideTerms.sol";
 
 /// @dev `clearRecords` lives on ResolverBase, not the Resolver interface the
 ///      controller already imports. Declared minimally rather than pulling the
@@ -167,10 +168,12 @@ contract SimplexController is
     event BeneficiaryChanged(address indexed beneficiary);
     event SponsorChanged(address indexed sponsor);
     event DefaultResolverChanged(address indexed resolver);
+    event BonaFideHookChanged(address indexed hook);
     event PublicSalesOpenChanged(bool open);
     event ContractFrozen();
 
     error ReentrantCall();
+    error BonaFideHookMismatch();
 
     /// @dev Manual `nonReentrant`. A freshly-zero `_reentrancyStatus` (the case
     ///      for the already-deployed instance, whose `initialize` does not
@@ -287,6 +290,16 @@ contract SimplexController is
         // against the previous one — see `_retireStaleRecords`.
         if (resolver != address(0)) wasDefaultResolver[resolver] = true;
         emit DefaultResolverChanged(resolver);
+    }
+
+    /// @notice Survives `freeze`.
+    function setBonaFideHook(address hook) external onlyOwner {
+        if (
+            hook != address(0) &&
+            IBonaFideTermsBinding(hook).controller() != address(this)
+        ) revert BonaFideHookMismatch();
+        bonaFideHook = hook;
+        emit BonaFideHookChanged(hook);
     }
 
     /// @notice Open or close the payable registration path. Two-way until `freeze`,
@@ -600,6 +613,14 @@ contract SimplexController is
 
         delete (commitments[commitment]);
 
+        if (bonaFideHook != address(0))
+            IBonaFideTerms(bonaFideHook).consumeRegistration(
+                registration.label,
+                labelhash,
+                commitment,
+                registration.owner
+            );
+
         bytes32 namehash = keccak256(abi.encodePacked(tldNode, labelhash));
 
         // Before the mint and before any new record is written: clearing after
@@ -764,6 +785,7 @@ contract SimplexController is
     ///      was rotated, quietly reopening the stale-record leak for every name
     ///      still pointing at the old one.
     mapping(address => bool) public wasDefaultResolver;
+    address public bonaFideHook;
 
-    uint256[44] private __gap;
+    uint256[43] private __gap;
 }

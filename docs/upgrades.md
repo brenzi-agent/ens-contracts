@@ -34,13 +34,14 @@ address public sponsor;
 address public defaultResolver;                    // packs with `publicSalesOpen`
 bool    public publicSalesOpen;
 mapping(address => bool) public wasDefaultResolver;
+address public bonaFideHook;
 
-uint256[44] private __gap;   // shrinks as state is added
+uint256[43] private __gap;   // shrinks as state is added
 ```
 
 `__gap` was `[50]`; `[49]` when `priceOracleFrozen` landed, `[48]` with
-`_reentrancyStatus`, and `[44]` with the four names-v2 slots. It is the budget
-for future state.
+`_reentrancyStatus`, `[44]` with the four names-v2 slots, and `[43]` with
+`bonaFideHook`. It is the budget for future state.
 
 `sponsor` reuses the slot of names-v2's `registrarAllowance`, which no deployed
 proxy has held; a mapping's own slot is never written, so it reads as zero under
