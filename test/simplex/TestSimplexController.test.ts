@@ -1324,19 +1324,19 @@ describe('SimplexController', () => {
       ).toBeRevertedWithCustomError('DurationTooLong')
     })
 
-    it('registerReserved accepts ten years and refuses a day more', async () => {
+    it('registerReserved accepts eleven years and refuses a day more', async () => {
       const { controller } = await loadFixture()
       await controller.write.addReservedNames([['brandname'], TRADEMARK], {
         account: ownerAccount,
       })
       await expect(
         controller.write.registerReserved(
-          ['brandname', registrantAccount.address, 3651n * DAY],
+          ['brandname', registrantAccount.address, 4016n * DAY],
           { account: ownerAccount },
         ),
       ).toBeRevertedWithCustomError('DurationTooLong')
       await controller.write.registerReserved(
-        ['brandname', registrantAccount.address, 3650n * DAY],
+        ['brandname', registrantAccount.address, 4015n * DAY],
         { account: ownerAccount },
       )
     })

@@ -43,7 +43,7 @@ contract SimplexController is
     uint256 public constant MIN_REGISTRATION_DURATION = 730 days;
     uint256 public constant MIN_RENEWAL_DURATION = 365 days;
     uint256 public constant MAX_REGISTRATION_DURATION = 1095 days;
-    uint256 public constant MAX_SPONSORED_REGISTRATION_DURATION = 3650 days;
+    uint256 public constant MAX_SPONSORED_REGISTRATION_DURATION = 4015 days;
 
     // Manual reentrancy guard (see `_reentrancyStatus` + `nonReentrant`).
     // Implemented by hand rather than inheriting ReentrancyGuardUpgradeable so
