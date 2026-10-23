@@ -9,6 +9,7 @@ import {
   getAddress,
 } from 'viem'
 import { describe, it, expect } from 'vitest'
+import { deploySubnameRegistrar } from './fixtures/subnameRegistrar.js'
 
 // Review fixes for the subname half of H1 (a revived subname inheriting the
 // previous 2LD owner's records) and M1 (an expired 2LD keeping authority over
@@ -43,10 +44,11 @@ async function fixture() {
     labelhash('alice'),
     aliceAccount.address,
   ])
-  const subnames = await connection.viem.deployContract('SubnameRegistrar', [
+  const subnames = await deploySubnameRegistrar(
+    connection.viem,
     ensRegistry.address,
     ownerAccount.address,
-  ])
+  )
   const resolver = await connection.viem.deployContract('SimplexResolver', [
     ensRegistry.address,
     subnames.address,

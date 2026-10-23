@@ -20,6 +20,7 @@ import {
   YEAR,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
+import { deploySubnameRegistrar } from './fixtures/subnameRegistrar.js'
 
 const TRADEMARK = 2 // SimplexController.Reason.Trademark
 const NONE = 0 // SimplexController.Reason.None
@@ -155,10 +156,11 @@ describe('launch lifecycle', () => {
       ])
       controller = await viem.getContractAt('SimplexController', proxy.address)
 
-      subnameRegistrar = await viem.deployContract('SubnameRegistrar', [
+      subnameRegistrar = await deploySubnameRegistrar(
+        viem,
         ens.address,
         baseRegistrar.address,
-      ])
+      )
       resolver = await viem.deployContract('SimplexResolver', [
         ens.address,
         subnameRegistrar.address,

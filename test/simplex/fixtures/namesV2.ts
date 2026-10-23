@@ -2,6 +2,7 @@ import type { NetworkConnection } from 'hardhat/types/network'
 import { encodeFunctionData, labelhash, namehash, zeroAddress, zeroHash } from 'viem'
 
 import { DAY } from '../../fixtures/constants.js'
+import { deploySubnameRegistrar } from './subnameRegistrar.js'
 
 export const YEAR = 365n * DAY
 
@@ -107,10 +108,11 @@ export async function deployNamesV2(
   ])
   const controller = await viem.getContractAt('SimplexController', proxy.address)
 
-  const subnameRegistrar = await viem.deployContract('SubnameRegistrar', [
+  const subnameRegistrar = await deploySubnameRegistrar(
+    viem,
     ens.address,
     baseRegistrar.address,
-  ])
+  )
   const resolver = await viem.deployContract('SimplexResolver', [
     ens.address,
     subnameRegistrar.address, // wrapper slot: subname authorisation routes here

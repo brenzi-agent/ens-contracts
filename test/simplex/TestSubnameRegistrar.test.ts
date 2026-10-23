@@ -9,6 +9,7 @@ import {
   getAddress,
 } from 'viem'
 import { describe, it, expect } from 'vitest'
+import { deploySubnameRegistrar } from './fixtures/subnameRegistrar.js'
 
 const connection = await hre.network.connect()
 const [ownerClient, aliceClient, bobClient] =
@@ -38,10 +39,11 @@ async function fixture() {
   ])
   // SubnameRegistrar(ens, baseRegistrar). ownerAccount stands in as the
   // BaseRegistrar so tests can drive onReregister directly.
-  const subnames = await connection.viem.deployContract('SubnameRegistrar', [
+  const subnames = await deploySubnameRegistrar(
+    connection.viem,
     ensRegistry.address,
     ownerAccount.address,
-  ])
+  )
   // SimplexResolver, wired with nameWrapper = subnames so it authorises subname
   // records against subnames.ownerOf. It is the deployed resolver, and the
   // registrar needs its clearSubnameRecords to retire records on delete/purge.

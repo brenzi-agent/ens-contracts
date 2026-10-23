@@ -1,4 +1,5 @@
 import { artifacts, deployScript } from '@rocketh'
+import { encodeFunctionData } from 'viem'
 
 export default deployScript(
   async ({ deploy, get, execute: write, namedAccounts, network }) => {
@@ -24,11 +25,28 @@ export default deployScript(
     // BEFORE the PublicResolver and sets the resolver's nameWrapper slot to it
     // (so subname records authorise via subnameRegistrar.ownerOf). The @rocketh
     // resolver deploys earlier, so here we only wire setResolver + setSubnameHook.
-    const subnameRegistrar = await deploy('SubnameRegistrar', {
+    // Behind a UUPS proxy, initialised in the deploying transaction, like the
+    // SimplexController.
+    const subnameRegistrarImpl = await deploy('SubnameRegistrarImpl', {
       account: deployer,
       artifact: artifacts.SubnameRegistrar,
-      args: [registry.address, registrar.address],
     })
+    const subnameRegistrarProxy = await deploy('SubnameRegistrar', {
+      account: deployer,
+      artifact: artifacts.SubnameRegistrarProxy,
+      args: [
+        subnameRegistrarImpl.address,
+        encodeFunctionData({
+          abi: artifacts.SubnameRegistrar.abi,
+          functionName: 'initialize',
+          args: [registry.address, registrar.address, owner],
+        }),
+      ],
+    })
+    const subnameRegistrar = {
+      ...subnameRegistrarProxy,
+      abi: artifacts.SubnameRegistrar.abi,
+    }
 
     if (!renderer.newlyDeployed) return
     if (network.name === 'mainnet' && !network.tags?.tenderly) return

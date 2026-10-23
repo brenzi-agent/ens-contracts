@@ -10,6 +10,7 @@ import {
 import { describe, it, expect } from 'vitest'
 
 import { DAY } from '../fixtures/constants.js'
+import { deploySubnameRegistrar } from './fixtures/subnameRegistrar.js'
 
 const connection = await hre.network.connect()
 const publicClient = await connection.viem.getPublicClient()
@@ -292,10 +293,11 @@ describe('BaseRegistrarImplementation v3', () => {
 
     it('bumps the SubnameRegistrar generation when a name is re-registered', async () => {
       const { ensRegistry, baseRegistrar } = await loadFixture()
-      const subnames = await connection.viem.deployContract('SubnameRegistrar', [
+      const subnames = await deploySubnameRegistrar(
+        connection.viem,
         ensRegistry.address,
         baseRegistrar.address,
-      ])
+      )
       await baseRegistrar.write.setSubnameHook([subnames.address])
 
       await registerLabel(baseRegistrar, 'gen', registrantAccount.address)

@@ -11,6 +11,7 @@ import { describe, it, expect } from 'vitest'
 
 import { dnsEncodeName } from '../fixtures/dnsEncodeName.js'
 import { PROFILE_ABI } from '../utils/resolutions.js'
+import { deploySubnameRegistrar } from './fixtures/subnameRegistrar.js'
 
 // End-to-end resolution test standing in for the off-chain SNRC resolver
 // (simplexmq scripts/resolver/snrc-resolve.py): it registers a 2LD and a
@@ -78,10 +79,11 @@ async function fixture() {
 
   // SubnameRegistrar(ens, baseRegistrar). ownerAccount stands in as the
   // BaseRegistrar so the test can drive subname creation directly.
-  const subnames = await connection.viem.deployContract('SubnameRegistrar', [
+  const subnames = await deploySubnameRegistrar(
+    connection.viem,
     ensRegistry.address,
     ownerAccount.address,
-  ])
+  )
   // The verbatim PublicResolver, wired with nameWrapper = subnames so it
   // authorises subname records against subnames.ownerOf.
   const resolver = await connection.viem.deployContract('PublicResolver', [

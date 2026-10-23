@@ -1,6 +1,9 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ~0.8.26;
 
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
+import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ENS} from "../registry/ENS.sol";
 import {ISubnameRegistrar} from "./ISubnameRegistrar.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
@@ -30,16 +33,25 @@ interface ISubnameRecordClearer {
 ///         previous owner's subnames; their leftover storage is reclaimed by the
 ///         permissionless `purge`. Depth is supported (subnames of subnames):
 ///         `ownerOf` walks up the parent chain to the 2LD.
-contract SubnameRegistrar is ISubnameRegistrar {
+///
+///         Deployed behind an ERC1967 UUPS proxy, so the resolver's
+///         `nameWrapper` slot and BaseRegistrar's `subnameHook` keep pointing at
+///         one address across upgrades. Upgrades are owner-only until `freeze()`.
+contract SubnameRegistrar is
+    Initializable,
+    Ownable2StepUpgradeable,
+    UUPSUpgradeable,
+    ISubnameRegistrar
+{
     /// @dev The ENS registry.
-    ENS public immutable ens;
+    ENS public ens;
     /// @dev BaseRegistrar; only it may bump generations.
-    address public immutable baseRegistrar;
+    address public baseRegistrar;
     /// @dev Resolver set on every created subname. One-time wiring (set after
     ///      the resolver is deployed, since the resolver's nameWrapper points
     ///      here), then immutable.
     address public resolver;
-    address private immutable _deployer;
+    address private _deployer;
 
     /// @dev subname node => parent node (for the ownerOf walk-up).
     mapping(bytes32 => bytes32) public parentOf;
@@ -64,7 +76,7 @@ contract SubnameRegistrar is ISubnameRegistrar {
     mapping(bytes32 => bytes32[]) private _children;
 
     /// @dev Max subname label byte-length (the DNS octet limit), matching the
-    ///      2LD cap. Constant — the contract has no general owner.
+    ///      2LD cap. Constant: changing it takes an upgrade.
     uint256 public constant MAX_LABEL_LENGTH = 63;
 
     error NotParentOwner();
@@ -76,6 +88,8 @@ contract SubnameRegistrar is ISubnameRegistrar {
     error NotBaseRegistrar();
     error AlreadyInitialised();
     error StaleSubnameMustBePurged(bytes32 node);
+    error AlreadyFrozen();
+    error Frozen();
 
     event SubnameCreated(
         bytes32 indexed parentNode,
@@ -85,6 +99,7 @@ contract SubnameRegistrar is ISubnameRegistrar {
     );
     event SubnameDeleted(bytes32 indexed parentNode, bytes32 indexed node);
     event GenerationBumped(bytes32 indexed node, uint256 generation);
+    event ContractFrozen();
 
     /// SNRC: signed subname management, so a user with no ETH can create and
     /// delete subnames. Pairs with ENSRegistry.setApprovalForAllWithSig, which is
@@ -108,10 +123,38 @@ contract SubnameRegistrar is ISubnameRegistrar {
     /// @dev One counter per signer, consumed in order.
     mapping(address => uint256) public nonces;
 
-    constructor(ENS _ens, address _baseRegistrar) {
+    /// @dev One-way: once set, `_authorizeUpgrade` reverts.
+    bool public frozen;
+
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(
+        ENS _ens,
+        address _baseRegistrar,
+        address _owner
+    ) external initializer {
+        __Ownable2Step_init();
+        __UUPSUpgradeable_init();
         ens = _ens;
         baseRegistrar = _baseRegistrar;
         _deployer = msg.sender;
+        if (_owner != msg.sender) {
+            _transferOwnership(_owner);
+        }
+    }
+
+    function _authorizeUpgrade(address) internal view override onlyOwner {
+        if (frozen) revert Frozen();
+    }
+
+    /// @notice Fixes the implementation for good.
+    function freeze() external onlyOwner {
+        if (frozen) revert AlreadyFrozen();
+        frozen = true;
+        emit ContractFrozen();
     }
 
     /// @notice One-time wiring: set the resolver applied to created subnames.
@@ -428,4 +471,6 @@ contract SubnameRegistrar is ISubnameRegistrar {
             labels[i] = labelOf[labelhash];
         }
     }
+
+    uint256[37] private __gap;
 }

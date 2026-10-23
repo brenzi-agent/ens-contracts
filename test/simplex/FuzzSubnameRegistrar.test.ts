@@ -8,6 +8,7 @@ import {
   getAddress,
 } from 'viem'
 import { describe, it, expect } from 'vitest'
+import { deploySubnameRegistrar } from './fixtures/subnameRegistrar.js'
 
 // Seeded property/fuzz test for SubnameRegistrar index integrity. Over a random
 // sequence of create / repeat-create operations, the invariants are:
@@ -39,10 +40,11 @@ async function fixture() {
     labelhash('alice'),
     aliceAccount.address,
   ])
-  const subnames = await connection.viem.deployContract('SubnameRegistrar', [
+  const subnames = await deploySubnameRegistrar(
+    connection.viem,
     ensRegistry.address,
     ownerAccount.address,
-  ])
+  )
   await ensRegistry.write.setApprovalForAll([subnames.address, true], {
     account: aliceAccount,
   })

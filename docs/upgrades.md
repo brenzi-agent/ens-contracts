@@ -1,7 +1,8 @@
 # SimplexController upgrade & storage-layout invariants
 
-`SimplexController` is the only **upgradeable** contract in the SNRC deployment
-(ERC-1967 UUPS proxy; `_authorizeUpgrade` is `onlyOwner`). A UUPS upgrade swaps
+`SimplexController` is an **upgradeable** contract in the SNRC deployment
+(ERC-1967 UUPS proxy; `_authorizeUpgrade` is `onlyOwner`), and so is
+`SubnameRegistrar` ([below](#subnameregistrar)); the invariants apply to both. A UUPS upgrade swaps
 the implementation behind a proxy whose storage persists — so the new
 implementation **must keep the exact storage layout** of the old one, only
 appending. Get this wrong and existing values (prices, reserved names, the
@@ -121,3 +122,26 @@ Same slot count, same slot size. `__gap` is untouched.
       no upgrade path at all.
 - [ ] Bump the `__gap` size in the same commit as any new state variable, so the
       two never drift.
+
+## SubnameRegistrar
+
+`SubnameRegistrar` sits behind its own UUPS proxy (`SubnameRegistrarProxy`) for the
+same reason: its address is wired into contracts that cannot be re-pointed cheaply.
+The resolver's immutable `nameWrapper` slot authorises every subname record through
+it, `BaseRegistrar.subnameHook` notifies it of re-registrations and expiries, and
+its EIP-712 domain (`verifyingContract`) is the proxy address, so signed intents and
+nonces carry across an upgrade. Replacing the contract at a new address instead
+would strand every existing subname on the old one.
+
+- `initialize(ens, baseRegistrar, owner)` replaces the constructor; the deployer
+  stays the only account that may call the one-time `setResolver`.
+- Upgrades are owner-only (`Ownable2Step`), and its own one-way `freeze()` ends
+  them. It is independent of the controller's `freeze()`; freeze both at lockdown.
+- Storage, in order after the OZ upgradeable bases: `ens`, `baseRegistrar`,
+  `resolver`, `_deployer`, `parentOf`, `generationAt`, `generation`, `expiryOf`,
+  `labelOf`, `childIndexed`, `_children`, `nonces`, `frozen`, then
+  `uint256[37] private __gap` (50 slots in all). The invariants above apply
+  unchanged.
+- `test/simplex/TestSubnameRegistrarUpgrade.test.ts` upgrades a populated proxy to
+  a V2 and checks that subnames, records, generations, expiries, nonces and signed
+  intents survive, and pins every slot above against reordering.
