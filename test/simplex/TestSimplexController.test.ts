@@ -7,10 +7,11 @@ import {
   zeroHash,
 } from 'viem'
 
+import { deployNamePolicy } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
-const TRADEMARK = 2 // SimplexController.Reason.Trademark
-const NONE = 0 // SimplexController.Reason.None
+const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
+const NONE = 0 // SimplexNamePolicy.Reason.None
 
 /**
  * Deploy SimplexController behind an ERC1967 proxy. The implementation's
@@ -119,6 +120,12 @@ async function fixture() {
   await controller.write.setPublicSalesOpen([true], {
     account: ownerAccount,
   })
+  const { namePolicy } = await deployNamePolicy(
+    connection,
+    controller,
+    baseRegistrar,
+    ownerAccount.address,
+  )
   return {
     ensRegistry,
     baseRegistrar,
@@ -128,6 +135,7 @@ async function fixture() {
     implementation,
     proxyAddress,
     mockNft,
+    namePolicy,
   }
 }
 
@@ -241,8 +249,8 @@ describe('SimplexController', () => {
 
   describe('Reserved names', () => {
     it('rejects registration of reserved name', async () => {
-      const { controller } = await loadFixture()
-      await controller.write.addReservedNames([['simplex'], TRADEMARK], {
+      const { controller, namePolicy } = await loadFixture()
+      await namePolicy.write.addReservedNames([['simplex'], TRADEMARK], {
         account: ownerAccount,
       })
       const registration = {
@@ -270,26 +278,26 @@ describe('SimplexController', () => {
           account: registrantAccount,
           value: price.base + price.premium,
         }),
-      ).toBeRevertedWithCustomError('NameReserved')
+      ).toBeRevertedWithCustomErrorFrom(namePolicy, 'NameReserved')
     })
 
     it('allows registration after removing reserved name', async () => {
-      const { controller } = await loadFixture()
-      await controller.write.addReservedNames([['testname'], TRADEMARK], {
+      const { controller, namePolicy } = await loadFixture()
+      await namePolicy.write.addReservedNames([['testname'], TRADEMARK], {
         account: ownerAccount,
       })
-      await controller.write.removeReservedNames([['testname']], {
+      await namePolicy.write.removeReservedNames([['testname']], {
         account: ownerAccount,
       })
       await commitAndRegister(controller, 'testname', registrantAccount)
     })
 
     it('admin can register reserved name via registerReserved', async () => {
-      const { controller, baseRegistrar } = await loadFixture()
-      await controller.write.addReservedNames([['simplex'], TRADEMARK], {
+      const { namePolicy, baseRegistrar } = await loadFixture()
+      await namePolicy.write.addReservedNames([['simplex'], TRADEMARK], {
         account: ownerAccount,
       })
-      await controller.write.registerReserved(
+      await namePolicy.write.registerReserved(
         ['simplex', registrantAccount.address, REGISTRATION_TIME],
         { account: ownerAccount },
       )
@@ -302,39 +310,39 @@ describe('SimplexController', () => {
     })
 
     it('rejects non-owner adding reserved name', async () => {
-      const { controller } = await loadFixture()
+      const { namePolicy } = await loadFixture()
       await expect(
-        controller.write.addReservedNames([['simplex'], TRADEMARK], {
+        namePolicy.write.addReservedNames([['simplex'], TRADEMARK], {
           account: registrantAccount,
         }),
       ).toBeRevertedWithCustomError('NotOwnerOrBeneficiary')
     })
 
     it('reserves and unreserves many names in a single transaction', async () => {
-      const { controller } = await loadFixture()
+      const { namePolicy } = await loadFixture()
       const labels = ['alpha', 'bravo', 'charlie', 'delta', 'echo']
       const { keccak256, toBytes } = await import('viem')
-      await controller.write.addReservedNames([labels, TRADEMARK], {
+      await namePolicy.write.addReservedNames([labels, TRADEMARK], {
         account: ownerAccount,
       })
       for (const l of labels) {
         expect(
-          await controller.read.reservedNames([keccak256(toBytes(l))]),
+          await namePolicy.read.reservedNames([keccak256(toBytes(l))]),
         ).toBe(TRADEMARK)
       }
-      await controller.write.removeReservedNames([labels], {
+      await namePolicy.write.removeReservedNames([labels], {
         account: ownerAccount,
       })
       for (const l of labels) {
         expect(
-          await controller.read.reservedNames([keccak256(toBytes(l))]),
+          await namePolicy.read.reservedNames([keccak256(toBytes(l))]),
         ).toBe(NONE)
       }
     })
 
     it('empty bulk-add is a no-op (does not revert)', async () => {
-      const { controller } = await loadFixture()
-      await controller.write.addReservedNames([[], TRADEMARK], {
+      const { namePolicy } = await loadFixture()
+      await namePolicy.write.addReservedNames([[], TRADEMARK], {
         account: ownerAccount,
       })
     })
@@ -477,6 +485,12 @@ describe('SimplexController', () => {
       await controller.write.setPublicSalesOpen([true], {
         account: ownerAccount,
       })
+      await deployNamePolicy(
+        connection,
+        controller,
+        baseRegistrar,
+        ownerAccount.address,
+      )
 
       return { controller, baseRegistrar }
     }
@@ -585,12 +599,9 @@ describe('SimplexController', () => {
     })
 
     it('owner can upgrade and storage is preserved', async () => {
-      const { controller } = await loadFixture()
+      const { controller, namePolicy } = await loadFixture()
       // Mutate some state through the proxy to prove it survives the upgrade.
       await controller.write.setMinCharLength([5], { account: ownerAccount })
-      await controller.write.addReservedNames([['preserveme'], TRADEMARK], {
-        account: ownerAccount,
-      })
 
       const newImpl = await connection.viem.deployContract(
         'SimplexController',
@@ -601,11 +612,9 @@ describe('SimplexController', () => {
       })
 
       expect(await controller.read.minCharLength()).toBe(5)
-      expect(
-        await controller.read.reservedNames([
-          labelhash('preserveme'),
-        ]),
-      ).toBe(TRADEMARK)
+      expect((await controller.read.namePolicy()).toLowerCase()).toBe(
+        namePolicy.address.toLowerCase(),
+      )
     })
 
     it('upgraded controller can still register names', async () => {
@@ -710,9 +719,9 @@ describe('SimplexController', () => {
 
   describe('registerReserved access checks (M-2)', () => {
     it('reverts when the name is not in reservedNames', async () => {
-      const { controller } = await loadFixture()
+      const { namePolicy } = await loadFixture()
       await expect(
-        controller.write.registerReserved(
+        namePolicy.write.registerReserved(
           ['unreservedname', registrantAccount.address, REGISTRATION_TIME],
           { account: ownerAccount },
         ),
@@ -720,12 +729,12 @@ describe('SimplexController', () => {
     })
 
     it('reverts when duration is below MIN_REGISTRATION_DURATION', async () => {
-      const { controller } = await loadFixture()
-      await controller.write.addReservedNames([['shortdur'], TRADEMARK], {
+      const { namePolicy } = await loadFixture()
+      await namePolicy.write.addReservedNames([['shortdur'], TRADEMARK], {
         account: ownerAccount,
       })
       await expect(
-        controller.write.registerReserved(
+        namePolicy.write.registerReserved(
           ['shortdur', registrantAccount.address, 1n],
           { account: ownerAccount },
         ),
@@ -733,14 +742,14 @@ describe('SimplexController', () => {
     })
 
     it('reverts for non-owner caller', async () => {
-      const { controller } = await loadFixture()
-      await controller.write.addReservedNames([['acl'], TRADEMARK], { account: ownerAccount })
+      const { namePolicy } = await loadFixture()
+      await namePolicy.write.addReservedNames([['acl'], TRADEMARK], { account: ownerAccount })
       await expect(
-        controller.write.registerReserved(
+        namePolicy.write.registerReserved(
           ['acl', registrantAccount.address, REGISTRATION_TIME],
           { account: registrantAccount },
         ),
-      ).toBeRevertedWithString('Ownable: caller is not the owner')
+      ).toBeRevertedWithCustomError('NotOwner')
     })
   })
 
@@ -1281,9 +1290,9 @@ describe('SimplexController', () => {
     })
 
     it('renew reverts NameReserved on a now-reserved name', async () => {
-      const { controller } = await loadFixture()
+      const { controller, namePolicy } = await loadFixture()
       await commitAndRegister(controller, 'reservedrenew', registrantAccount)
-      await controller.write.addReservedNames([['reservedrenew'], TRADEMARK], { account: ownerAccount })
+      await namePolicy.write.addReservedNames([['reservedrenew'], TRADEMARK], { account: ownerAccount })
       const price = await controller.read.rentPrice(['reservedrenew', RENEWAL_TIME])
       await expect(
         controller.write.renew(['reservedrenew', RENEWAL_TIME, zeroHash], {
@@ -1324,17 +1333,17 @@ describe('SimplexController', () => {
     })
 
     it('registerReserved accepts eleven years and refuses a day more', async () => {
-      const { controller } = await loadFixture()
-      await controller.write.addReservedNames([['brandname'], TRADEMARK], {
+      const { namePolicy } = await loadFixture()
+      await namePolicy.write.addReservedNames([['brandname'], TRADEMARK], {
         account: ownerAccount,
       })
       await expect(
-        controller.write.registerReserved(
+        namePolicy.write.registerReserved(
           ['brandname', registrantAccount.address, 4016n * DAY],
           { account: ownerAccount },
         ),
       ).toBeRevertedWithCustomError('DurationTooLong')
-      await controller.write.registerReserved(
+      await namePolicy.write.registerReserved(
         ['brandname', registrantAccount.address, 4015n * DAY],
         { account: ownerAccount },
       )
@@ -1377,10 +1386,10 @@ describe('SimplexController', () => {
     })
 
     it('rejects non-owner removeReservedNames', async () => {
-      const { controller } = await loadFixture()
+      const { namePolicy } = await loadFixture()
       await expect(
-        controller.write.removeReservedNames([['simplex']], { account: registrantAccount }),
-      ).toBeRevertedWithString('Ownable: caller is not the owner')
+        namePolicy.write.removeReservedNames([['simplex']], { account: registrantAccount }),
+      ).toBeRevertedWithCustomError('NotOwner')
     })
 
     it('renounceOwnership leaves no owner and locks admin functions', async () => {

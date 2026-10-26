@@ -1,7 +1,7 @@
 pragma solidity >=0.8.4;
 
 import "../registry/ENS.sol";
-import "../simplex/IBonaFideTerms.sol";
+import "../simplex/INamePolicy.sol";
 import "./IBaseRegistrar.sol";
 import "./IMetadataRenderer.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
@@ -41,7 +41,7 @@ contract BaseRegistrarImplementation is
     // SubnameRegistrar, notified on re-registration so the previous owner's
     // subnames are invalidated/garbage-collectable. Optional (0 = disabled).
     address public subnameHook;
-    address public bonaFideHook;
+    address public namePolicy;
     // The ENS registry
     ENS public ens;
     // The namehash of the TLD this registrar owns (eg, .eth)
@@ -57,10 +57,10 @@ contract BaseRegistrarImplementation is
     event MetadataRendererChanged(address indexed renderer);
     event MaxLabelLengthChanged(uint256 maxLabelLength);
     event SubnameHookChanged(address indexed hook);
-    event BonaFideHookChanged(address indexed hook);
+    event NamePolicyChanged(address indexed namePolicy);
 
     error LabelTooLong(uint256 length, uint256 max);
-    error BonaFideHookMismatch();
+    error NamePolicyMismatch();
 
     /// v2.1.3 version of _isApprovedOrOwner which calls ownerOf(tokenId) and takes grace period into consideration instead of ERC721.ownerOf(tokenId);
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v2.1.3/contracts/token/ERC721/ERC721.sol#L187
@@ -246,13 +246,13 @@ contract BaseRegistrarImplementation is
         emit SubnameHookChanged(hook);
     }
 
-    function setBonaFideHook(address hook) external onlyOwner {
+    function setNamePolicy(address newNamePolicy) external onlyOwner {
         if (
-            hook != address(0) &&
-            IBonaFideTermsBinding(hook).registrar() != address(this)
-        ) revert BonaFideHookMismatch();
-        bonaFideHook = hook;
-        emit BonaFideHookChanged(hook);
+            newNamePolicy != address(0) &&
+            INamePolicyBinding(newNamePolicy).registrar() != address(this)
+        ) revert NamePolicyMismatch();
+        namePolicy = newNamePolicy;
+        emit NamePolicyChanged(newNamePolicy);
     }
 
     /// ------------------------------------------------------------------
@@ -523,7 +523,7 @@ contract BaseRegistrarImplementation is
     ///      — no separate reclaim, and the previous owner can no longer manage
     ///      the name or its subnames after a sale. Skips mint/burn (registration
     ///      sets the registry owner itself) and is a no-op if not live.
-    ///      A transfer not made by a controller first calls `bonaFideHook`, which
+    ///      A transfer not made by a controller first calls `namePolicy`, which
     ///      reverts for a listed name whose recipient has not accepted the current
     ///      terms.
     function _beforeTokenTransfer(
@@ -534,8 +534,8 @@ contract BaseRegistrarImplementation is
     ) internal override {
         super._beforeTokenTransfer(from, to, firstTokenId, batchSize);
         if (from != address(0) && to != address(0)) {
-            if (bonaFideHook != address(0) && !controllers[msg.sender]) {
-                IBonaFideTerms(bonaFideHook).consumeTransfer(
+            if (!controllers[msg.sender] && namePolicy != address(0)) {
+                INamePolicy(namePolicy).consumeTransfer(
                     firstTokenId,
                     from,
                     to,

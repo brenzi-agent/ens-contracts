@@ -14,7 +14,7 @@ import {
 } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
-const TRADEMARK = 2 // SimplexController.Reason.Trademark
+const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
 
 const connection = await hre.network.connect()
 const [ownerClient, guardianClient, registrarClient, squatterClient, victimClient] =
@@ -173,7 +173,7 @@ describe('records do not survive re-registration', () => {
   })
 
   it('registerReserved also retires the previous owner records', async () => {
-    const { controller, resolver, ens } = await load()
+    const { controller, namePolicy, resolver, ens } = await load()
     await sponsoredRegister(controller, 'brandname', squatter.address, resolver.address)
     await resolver.write.setText(
       [node('brandname'), KEY, 'https://smp/squatter'],
@@ -181,8 +181,8 @@ describe('records do not survive re-registration', () => {
     )
     await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + GRACE + 1n))
 
-    await controller.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
-    await controller.write.registerReserved(
+    await namePolicy.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
+    await namePolicy.write.registerReserved(
       ['brandname', victim.address, MIN_REGISTRATION],
       { account: owner },
     )
@@ -254,9 +254,9 @@ describe('renewal and availability semantics', () => {
   })
 
   it('available() reports a reserved name as unavailable', async () => {
-    const { controller } = await load()
+    const { controller, namePolicy } = await load()
     expect(await controller.read.available(['freename'])).toBe(true)
-    await controller.write.addReservedNames([['freename'], TRADEMARK], { account: owner })
+    await namePolicy.write.addReservedNames([['freename'], TRADEMARK], { account: owner })
     expect(await controller.read.available(['freename'])).toBe(false)
   })
 

@@ -143,21 +143,21 @@ describe('controller storage layout', () => {
     )
   })
 
-  it('the bona fide hook sits after wasDefaultResolver', async () => {
-    const { controller, baseRegistrar } = await load()
+  it('the name policy sits after wasDefaultResolver', async () => {
+    const { controller, namePolicyImplementation } = await load()
     const base = await snapshot(controller.address)
     await controller.write.setPublicSalesOpen([true], { account: owner })
     const [resolverSlot] = changed(base, await snapshot(controller.address))
 
-    const bonaFide = await connection.viem.deployContract('SimplexBonaFideTerms', [
-      controller.address,
-      baseRegistrar.address,
+    const secondPolicy = await connection.viem.deployContract('SimplexNamePolicyProxy', [
+      namePolicyImplementation.address,
+      '0x',
     ])
     const before = await snapshot(controller.address)
-    await controller.write.setBonaFideHook([bonaFide.address], { account: owner })
+    await controller.write.setNamePolicy([secondPolicy.address], { account: owner })
     const after = await snapshot(controller.address)
     expect(changed(before, after)).toEqual([resolverSlot + 2])
-    expect(after[resolverSlot + 2]).toBe(pad(bonaFide.address).toLowerCase())
+    expect(after[resolverSlot + 2]).toBe(pad(secondPolicy.address).toLowerCase())
   })
 
   it('the sponsor sits in its own slot', async () => {

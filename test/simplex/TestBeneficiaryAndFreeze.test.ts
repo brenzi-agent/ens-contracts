@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import { AMPLE_ALLOWANCE, deployNamesV2, MIN_REGISTRATION, registerWithCredit, registration, YEAR } from './fixtures/namesV2.js'
 
-const TRADEMARK = 2 // SimplexController.Reason.Trademark
+const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
 
 const connection = await hre.network.connect()
 const publicClient = await connection.viem.getPublicClient()
@@ -158,15 +158,15 @@ describe('freeze', () => {
   })
 
   it('leaves every other owner power working — this is a freeze, not a burn', async () => {
-    const { controller, resolver, priceOracle, dummyOracle } = await load()
+    const { controller, namePolicy, resolver, priceOracle, dummyOracle } = await load()
     await controller.write.freeze({ account: owner })
 
     // brand outreach continues with no horizon
-    await controller.write.addReservedNames([['brandish'], TRADEMARK], { account: owner })
-    await controller.write.registerReserved(['brandish', alice.address, MIN_REGISTRATION], {
+    await namePolicy.write.addReservedNames([['brandish'], TRADEMARK], { account: owner })
+    await namePolicy.write.registerReserved(['brandish', alice.address, MIN_REGISTRATION], {
       account: owner,
     })
-    await controller.write.removeReservedNames([['brandish']], {
+    await namePolicy.write.removeReservedNames([['brandish']], {
       account: owner,
     })
 

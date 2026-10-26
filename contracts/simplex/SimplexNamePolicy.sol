@@ -1,16 +1,40 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ~0.8.26;
 
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {BaseRegistrarImplementation} from "../ethregistrar/BaseRegistrarImplementation.sol";
-import {IBonaFideTerms} from "./IBonaFideTerms.sol";
-import {SimplexController} from "./SimplexController.sol";
+import {ENS} from "../registry/ENS.sol";
+import {INamePolicy} from "./INamePolicy.sol";
+import {IClearableResolver, MAX_SPONSORED_REGISTRATION, MIN_REGISTRATION, SimplexController} from "./SimplexController.sol";
 
-contract SimplexBonaFideTerms is IBonaFideTerms {
+contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     SimplexController public immutable controller;
     BaseRegistrarImplementation public immutable registrar;
+    ENS private immutable _ens;
+    bytes32 private immutable _tldNode;
+    address private immutable _self = address(this);
 
-    mapping(bytes32 => bool) public bonaFideNames;
+    /// @dev APPEND ONLY once names are reserved. The members are stored as their
+    ///      positions, so reordering or removing one silently relabels every name
+    ///      already reserved under it and nothing on chain can tell. `None` must
+    ///      stay 0, because `delete` writes zero. The wording a user reads is
+    ///      client-side.
+    enum Reason {
+        None,
+        Internal,
+        Trademark,
+        Community
+    }
+
+    struct NameEntry {
+        bool bonaFide;
+        Reason reserved;
+    }
+
+    /// @dev Reason.None means not reserved, so this one mapping answers both
+    ///      "is it reserved" and "why" - the two cannot drift apart.
+    mapping(bytes32 => NameEntry) private _names;
     bytes32 public termsHash;
     mapping(bytes32 => mapping(address => bytes32)) public acceptedTerms;
     mapping(uint256 => mapping(address => mapping(address => mapping(uint256 => bytes32))))
@@ -21,7 +45,7 @@ contract SimplexBonaFideTerms is IBonaFideTerms {
         keccak256(
             "EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"
         );
-    bytes32 private constant _EIP712_NAME = keccak256("SimplexBonaFideTerms");
+    bytes32 private constant _EIP712_NAME = keccak256("SimplexNamePolicy");
     bytes32 private constant _EIP712_VERSION = keccak256("1");
     bytes32 public constant ACCEPT_TYPEHASH =
         keccak256(
@@ -32,6 +56,9 @@ contract SimplexBonaFideTerms is IBonaFideTerms {
             "AcceptBonaFideTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)"
         );
 
+    event ReservedNameAdded(string name, Reason reason);
+    event ReservedNameReasonChanged(string name, Reason reason);
+    event ReservedNameRemoved(string name);
     event BonaFideNameAdded(string name);
     event BonaFideNameSkipped(string name);
     event BonaFideNameRemoved(string name);
@@ -52,6 +79,14 @@ contract SimplexBonaFideTerms is IBonaFideTerms {
     error SignatureExpired();
     error InvalidNonce();
     error InvalidSignature();
+    error ReasonRequired();
+    error NameNotReserved(string name);
+    error NameReserved(string name);
+    error DurationTooShort(uint256 duration);
+    error DurationTooLong(uint256 duration);
+    error Frozen();
+    error ImplementationMismatch();
+    error NotProxy();
 
     constructor(
         SimplexController _controller,
@@ -59,17 +94,104 @@ contract SimplexBonaFideTerms is IBonaFideTerms {
     ) {
         controller = _controller;
         registrar = _registrar;
+        _ens = _controller.ens();
+        _tldNode = _controller.tldNode();
     }
 
     modifier onlyOwner() {
+        if (address(this) == _self) revert NotProxy();
         if (msg.sender != controller.owner()) revert NotOwner();
         _;
     }
 
     modifier onlyOwnerOrBeneficiary() {
+        if (address(this) == _self) revert NotProxy();
         if (msg.sender != controller.owner() && msg.sender != controller.beneficiary())
             revert NotOwnerOrBeneficiary();
         _;
+    }
+
+    /// @notice Also stops the renewal of a registered name.
+    /// @param reason `Reason.None` is refused: it is the value that means "not
+    ///        reserved", so it would make this function silently unreserve.
+    function addReservedNames(
+        string[] calldata names,
+        Reason reason
+    ) external onlyOwnerOrBeneficiary {
+        if (reason == Reason.None) revert ReasonRequired();
+        for (uint256 i = 0; i < names.length; ++i) {
+            _names[keccak256(bytes(names[i]))].reserved = reason;
+            emit ReservedNameAdded(names[i], reason);
+        }
+    }
+
+    /// @notice Reclassifies without unreserving: removing and re-adding would
+    ///         open the name to a squatter for the gap between the two.
+    function setReservationReason(
+        string[] calldata names,
+        Reason reason
+    ) external onlyOwnerOrBeneficiary {
+        if (reason == Reason.None) revert ReasonRequired();
+        for (uint256 i = 0; i < names.length; ++i) {
+            bytes32 labelhash = keccak256(bytes(names[i]));
+            if (_names[labelhash].reserved == Reason.None)
+                revert NameNotReserved(names[i]);
+            _names[labelhash].reserved = reason;
+            emit ReservedNameReasonChanged(names[i], reason);
+        }
+    }
+
+    /// @notice Symmetric bulk-remove. Pass a single-element array to remove
+    ///         one. Each removal emits a `ReservedNameRemoved` event.
+    function removeReservedNames(string[] calldata names) external onlyOwner {
+        for (uint256 i = 0; i < names.length; ++i) {
+            delete _names[keccak256(bytes(names[i]))].reserved;
+            emit ReservedNameRemoved(names[i]);
+        }
+    }
+
+    /// @notice Hand a reserved name to its brand. Sets the default resolver on
+    ///         the node, so the name resolves immediately
+    ///         and the brand's later record edits can be relayed — a brand never
+    ///         has to hold ETH. `setSubnodeOwner` alone sets an owner but not a
+    ///         resolver, so without this the name would not resolve at all.
+    ///         Releases the reservation, so the name renews like any other.
+    function registerReserved(
+        string calldata label,
+        address owner,
+        uint256 duration
+    ) external onlyOwner {
+        bytes32 labelhash = keccak256(bytes(label));
+        if (_names[labelhash].reserved == Reason.None)
+            revert NameNotReserved(label);
+        if (duration < MIN_REGISTRATION)
+            revert DurationTooShort(duration);
+        if (duration > MAX_SPONSORED_REGISTRATION)
+            revert DurationTooLong(duration);
+
+        delete _names[labelhash].reserved;
+        emit ReservedNameRemoved(label);
+
+        bytes32 namehash = keccak256(abi.encodePacked(_tldNode, labelhash));
+        registrar.registerWithLabel(label, address(this), duration);
+        _retireStaleRecords(namehash);
+        address resolver = controller.defaultResolver();
+        if (resolver != address(0))
+            _ens.setRecord(namehash, address(this), resolver, 0);
+        registrar.transferFrom(address(this), owner, uint256(labelhash));
+    }
+
+    function reservedNames(bytes32 labelhash) external view returns (Reason) {
+        return _names[labelhash].reserved;
+    }
+
+    function isReserved(bytes32 labelhash) external view returns (bool) {
+        if (address(this) == _self) revert NotProxy();
+        return _names[labelhash].reserved != Reason.None;
+    }
+
+    function bonaFideNames(bytes32 labelhash) external view returns (bool) {
+        return _names[labelhash].bonaFide;
     }
 
     function addBonaFideNames(
@@ -81,14 +203,14 @@ contract SimplexBonaFideTerms is IBonaFideTerms {
                 emit BonaFideNameSkipped(names[i]);
                 continue;
             }
-            bonaFideNames[labelhash] = true;
+            _names[labelhash].bonaFide = true;
             emit BonaFideNameAdded(names[i]);
         }
     }
 
     function removeBonaFideNames(string[] calldata names) external onlyOwner {
         for (uint256 i = 0; i < names.length; ++i) {
-            delete bonaFideNames[keccak256(bytes(names[i]))];
+            delete _names[keccak256(bytes(names[i]))].bonaFide;
             emit BonaFideNameRemoved(names[i]);
         }
     }
@@ -181,7 +303,10 @@ contract SimplexBonaFideTerms is IBonaFideTerms {
         address owner
     ) external {
         if (msg.sender != address(controller)) revert NotController();
-        if (!bonaFideNames[labelhash]) return;
+        if (address(this) == _self) revert NotProxy();
+        NameEntry memory entry = _names[labelhash];
+        if (entry.reserved != Reason.None) revert NameReserved(label);
+        if (!entry.bonaFide) return;
         bytes32 accepted = acceptedTerms[commitment][owner];
         if (!_isCurrentTerms(accepted)) revert TermsNotAccepted(label);
         delete acceptedTerms[commitment][owner];
@@ -196,7 +321,8 @@ contract SimplexBonaFideTerms is IBonaFideTerms {
         string calldata label
     ) external {
         if (msg.sender != address(registrar)) revert NotRegistrar();
-        if (!bonaFideNames[bytes32(tokenId)]) return;
+        if (address(this) == _self) revert NotProxy();
+        if (!_names[bytes32(tokenId)].bonaFide) return;
         bytes32 accepted = acceptedClaimTerms[tokenId][from][to][offer];
         if (!_isCurrentTerms(accepted)) revert TermsNotAccepted(label);
         delete acceptedClaimTerms[tokenId][from][to][offer];
@@ -214,6 +340,12 @@ contract SimplexBonaFideTerms is IBonaFideTerms {
                     address(this)
                 )
             );
+    }
+
+    function _retireStaleRecords(bytes32 node) private {
+        address stale = _ens.resolver(node);
+        if (stale != address(0) && controller.wasDefaultResolver(stale))
+            IClearableResolver(stale).clearRecords(node);
     }
 
     function _acceptForCommitment(
@@ -264,4 +396,15 @@ contract SimplexBonaFideTerms is IBonaFideTerms {
             nonces[signer] = nonce + 1;
         }
     }
+
+    function _authorizeUpgrade(
+        address newImplementation
+    ) internal view override onlyOwner {
+        if (controller.frozen()) revert Frozen();
+        SimplexNamePolicy next = SimplexNamePolicy(newImplementation);
+        if (next.controller() != controller || next.registrar() != registrar)
+            revert ImplementationMismatch();
+    }
+
+    uint256[45] private __gap;
 }

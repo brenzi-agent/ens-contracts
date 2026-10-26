@@ -135,17 +135,50 @@ export async function deployNamesV2(
     account: accounts.owner,
   })
 
+  const { namePolicy, namePolicyImplementation } = await deployNamePolicy(
+    connection,
+    controller,
+    baseRegistrar,
+    accounts.owner,
+  )
+
   return {
     ens,
     baseRegistrar,
     controller,
     sponsor,
+    namePolicy,
+    namePolicyImplementation,
     implementation,
     resolver,
     subnameRegistrar,
     priceOracle,
     dummyOracle,
   }
+}
+
+export async function deployNamePolicy(
+  connection: NetworkConnection,
+  controller: any,
+  baseRegistrar: any,
+  owner: `0x${string}`,
+) {
+  const viem = connection.viem
+  const namePolicyImplementation = await viem.deployContract('SimplexNamePolicy', [
+    controller.address,
+    baseRegistrar.address,
+  ])
+  const namePolicyProxy = await viem.deployContract('SimplexNamePolicyProxy', [
+    namePolicyImplementation.address,
+    '0x',
+  ])
+  const namePolicy = await viem.getContractAt('SimplexNamePolicy', namePolicyProxy.address)
+  await baseRegistrar.write.addController([namePolicy.address])
+  await controller.write.setNamePolicy([namePolicy.address], {
+    account: owner,
+  })
+  await baseRegistrar.write.setNamePolicy([namePolicy.address])
+  return { namePolicy, namePolicyImplementation }
 }
 
 /** A registration struct with the defaults every test here wants. */
@@ -261,7 +294,7 @@ export async function signIntent(
     | 'SimplexSubnames'
     | 'SimplexNames'
     | 'SimplexSponsor'
-    | 'SimplexBonaFideTerms',
+    | 'SimplexNamePolicy',
   verifyingContract: `0x${string}`,
   primaryType: keyof typeof eip712Types,
   message: Record<string, unknown>,
@@ -347,7 +380,7 @@ export async function registerWithCredit(
 /** Enough allowance that a test never has to think about it: $1000. */
 export const AMPLE_ALLOWANCE = 1000n * 10n ** 18n
 
-/** SimplexController.Reason. Append-only on chain: these numbers are storage. */
+/** SimplexNamePolicy.Reason. Append-only on chain: these numbers are storage. */
 export const Reason = {
   None: 0,
   Internal: 1,

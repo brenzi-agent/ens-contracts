@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 
 import { deployNamesV2, YEAR } from './fixtures/namesV2.js'
 
-const TRADEMARK = 2 // SimplexController.Reason.Trademark
+const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
 
 const connection = await hre.network.connect()
 const [ownerClient, guardianClient, , aliceClient] =
@@ -31,13 +31,13 @@ const OWNABLE = 'Ownable: caller is not the owner'
 describe('admin split', () => {
   describe('restrictive: owner and guardian both', () => {
     it('addReservedNames', async () => {
-      const { controller } = await load()
-      await controller.write.addReservedNames([['byowner'], TRADEMARK], { account: owner })
-      await controller.write.addReservedNames([['byguard'], TRADEMARK], {
+      const { namePolicy } = await load()
+      await namePolicy.write.addReservedNames([['byowner'], TRADEMARK], { account: owner })
+      await namePolicy.write.addReservedNames([['byguard'], TRADEMARK], {
         account: guardian,
       })
       await expect(
-        controller.write.addReservedNames([['bynobody'], TRADEMARK], { account: alice }),
+        namePolicy.write.addReservedNames([['bynobody'], TRADEMARK], { account: alice }),
       ).toBeRevertedWithCustomError('NotOwnerOrBeneficiary')
     })
 
@@ -53,31 +53,31 @@ describe('admin split', () => {
 
   describe('permissive: owner only, guardian rejected', () => {
     it('removeReservedNames', async () => {
-      const { controller } = await load()
-      await controller.write.addReservedNames([['releaseme'], TRADEMARK], {
+      const { namePolicy } = await load()
+      await namePolicy.write.addReservedNames([['releaseme'], TRADEMARK], {
         account: owner,
       })
       await expect(
-        controller.write.removeReservedNames([['releaseme']], {
+        namePolicy.write.removeReservedNames([['releaseme']], {
           account: guardian,
         }),
-      ).toBeRevertedWithString(OWNABLE)
-      await controller.write.removeReservedNames([['releaseme']], {
+      ).toBeRevertedWithCustomError('NotOwner')
+      await namePolicy.write.removeReservedNames([['releaseme']], {
         account: owner,
       })
     })
 
     it('registerReserved', async () => {
-      const { controller } = await load()
-      await controller.write.addReservedNames([['handitover'], TRADEMARK], {
+      const { namePolicy } = await load()
+      await namePolicy.write.addReservedNames([['handitover'], TRADEMARK], {
         account: owner,
       })
       await expect(
-        controller.write.registerReserved(
+        namePolicy.write.registerReserved(
           ['handitover', alice.address, YEAR],
           { account: guardian },
         ),
-      ).toBeRevertedWithString(OWNABLE)
+      ).toBeRevertedWithCustomError('NotOwner')
     })
 
     it('setDefaultResolver, setSponsor, setMinCharLength, setPriceOracle, freeze', async () => {

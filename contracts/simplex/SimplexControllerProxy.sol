@@ -8,11 +8,6 @@ import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.s
 ///         declared as a concrete contract so Hardhat emits its artifact
 ///         and the deploy script can reference it as
 ///         `artifacts.SimplexControllerProxy`.
-///
-///         SimplexController is the only contract we wrap in a proxy.
-///         All other core contracts (ENSRegistry, BaseRegistrarImplementation,
-///         PublicResolver, Root, ReverseRegistrar) are deployed without a proxy
-///         and are non-upgradeable.
 contract SimplexControllerProxy is ERC1967Proxy {
     constructor(address _logic, bytes memory _data)
         payable

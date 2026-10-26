@@ -39,12 +39,8 @@ const expected = (name: string, verifyingContract: `0x${string}`, chainId: numbe
  */
 describe('EIP-712 domains', () => {
   it('are distinct per contract and match the off-chain computation', async () => {
-    const { ens, resolver, subnameRegistrar, baseRegistrar, sponsor, controller } =
+    const { ens, resolver, subnameRegistrar, baseRegistrar, sponsor, namePolicy } =
       await load()
-    const bonaFide = await connection.viem.deployContract('SimplexBonaFideTerms', [
-      controller.address,
-      baseRegistrar.address,
-    ])
     const chainId = await publicClient.getChainId()
 
     const domains = [
@@ -53,7 +49,7 @@ describe('EIP-712 domains', () => {
       ['SimplexSubnames', subnameRegistrar],
       ['SimplexNames', baseRegistrar],
       ['SimplexSponsor', sponsor],
-      ['SimplexBonaFideTerms', bonaFide],
+      ['SimplexNamePolicy', namePolicy],
     ] as const
 
     const seen = new Set<string>()

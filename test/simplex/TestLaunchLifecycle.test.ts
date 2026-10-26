@@ -21,8 +21,8 @@ import {
   yearPriceUSD,
 } from './fixtures/namesV2.js'
 
-const TRADEMARK = 2 // SimplexController.Reason.Trademark
-const NONE = 0 // SimplexController.Reason.None
+const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
+const NONE = 0 // SimplexNamePolicy.Reason.None
 
 /**
  * The launch plan, walked end to end on one chain in the order it happens:
@@ -81,6 +81,7 @@ let renderer: any
 let dummyOracle: any
 let priceOracle: any
 let sponsor: any
+let namePolicy: any
 
 const OWNABLE = 'Ownable: caller is not the owner'
 
@@ -167,6 +168,18 @@ describe('launch lifecycle', () => {
       ])
       await subnameRegistrar.write.setResolver([resolver.address])
       sponsor = await viem.deployContract('SimplexSponsor', [controller.address])
+      const namePolicyImplementation = await viem.deployContract(
+        'SimplexNamePolicy',
+        [controller.address, baseRegistrar.address],
+      )
+      const namePolicyProxy = await viem.deployContract(
+        'SimplexNamePolicyProxy',
+        [namePolicyImplementation.address, '0x'],
+      )
+      namePolicy = await viem.getContractAt(
+        'SimplexNamePolicy',
+        namePolicyProxy.address,
+      )
     })
 
     it('gives the TLD to the registrar through Root', async () => {
@@ -184,13 +197,16 @@ describe('launch lifecycle', () => {
       )
     })
 
-    it('wires the registrar, resolver, renderer and sponsor', async () => {
+    it('wires the registrar, resolver, renderer, sponsor and name policy', async () => {
       await baseRegistrar.write.addController([controller.address])
       await baseRegistrar.write.setMetadataRenderer([renderer.address])
       await baseRegistrar.write.setMaxLabelLength([63n])
       await baseRegistrar.write.setSubnameHook([subnameRegistrar.address])
       await controller.write.setDefaultResolver([resolver.address])
       await controller.write.setSponsor([sponsor.address])
+      await baseRegistrar.write.addController([namePolicy.address])
+      await controller.write.setNamePolicy([namePolicy.address])
+      await baseRegistrar.write.setNamePolicy([namePolicy.address])
 
       expect(await baseRegistrar.read.maxLabelLength()).toBe(63n)
       expect((await baseRegistrar.read.subnameHook()).toLowerCase()).toBe(
@@ -204,6 +220,12 @@ describe('launch lifecycle', () => {
       )
       expect((await sponsor.read.controller()).toLowerCase()).toBe(
         controller.address.toLowerCase(),
+      )
+      expect((await controller.read.namePolicy()).toLowerCase()).toBe(
+        namePolicy.address.toLowerCase(),
+      )
+      expect((await baseRegistrar.read.namePolicy()).toLowerCase()).toBe(
+        namePolicy.address.toLowerCase(),
       )
     })
 
@@ -223,7 +245,7 @@ describe('launch lifecycle', () => {
       // a loop like this. The assertion below pins the real figure.
       let totalGas = 0n
       for (let i = 0; i < aPriori.length; i += APRIORI_BATCH) {
-        const hash = await controller.write.addReservedNames([
+        const hash = await namePolicy.write.addReservedNames([
           aPriori.slice(i, i + APRIORI_BATCH),
           TRADEMARK,
         ])
@@ -233,11 +255,11 @@ describe('launch lifecycle', () => {
       // recorded so the deployment plan's gas budget can be checked against it
       expect(perName).toBeLessThan(30000n)
       for (const label of ['brand0000', 'brand1499', 'brand2999']) {
-        expect(await controller.read.reservedNames([labelhash(label)])).toBe(
+        expect(await namePolicy.read.reservedNames([labelhash(label)])).toBe(
           TRADEMARK,
         )
       }
-      expect(await controller.read.reservedNames([labelhash('notabrand')])).toBe(
+      expect(await namePolicy.read.reservedNames([labelhash('notabrand')])).toBe(
         NONE,
       )
     }, 120000)
@@ -297,10 +319,10 @@ describe('launch lifecycle', () => {
         controller.write.setMinCharLength([5], { account: deployKey }),
       ).toBeRevertedWithString(OWNABLE)
       await expect(
-        controller.write.removeReservedNames([['brand0000']], {
+        namePolicy.write.removeReservedNames([['brand0000']], {
           account: deployKey,
         }),
-      ).toBeRevertedWithString(OWNABLE)
+      ).toBeRevertedWithCustomError('NotOwner')
       await expect(
         baseRegistrar.write.addController([bob.address], {
           account: deployKey,
@@ -435,7 +457,7 @@ describe('launch lifecycle', () => {
           await signRegistration(connection, sponsor, reserved),
           { account: registrar },
         ),
-      ).toBeRevertedWithCustomErrorFrom(controller, 'NameReserved')
+      ).toBeRevertedWithCustomErrorFrom(namePolicy, 'NameReserved')
     })
   })
 
@@ -744,23 +766,23 @@ describe('launch lifecycle', () => {
 
   describe('7. brand reservations during the window', () => {
     it('the guardian reserves a name under threat, immediately', async () => {
-      await controller.write.addReservedNames([['newbrand'], TRADEMARK], {
+      await namePolicy.write.addReservedNames([['newbrand'], TRADEMARK], {
         account: guardian,
       })
-      expect(await controller.read.reservedNames([labelhash('newbrand')])).toBe(
+      expect(await namePolicy.read.reservedNames([labelhash('newbrand')])).toBe(
         TRADEMARK,
       )
     })
 
     it('the admin hands it to the brand, resolving with credits', async () => {
       await expect(
-        controller.write.registerReserved(
+        namePolicy.write.registerReserved(
           ['newbrand', brand.address, MIN_REGISTRATION],
           { account: guardian },
         ),
-      ).toBeRevertedWithString(OWNABLE)
+      ).toBeRevertedWithCustomError('NotOwner')
 
-      await controller.write.registerReserved(
+      await namePolicy.write.registerReserved(
         ['newbrand', brand.address, MIN_REGISTRATION],
         { account: admin },
       )
@@ -774,14 +796,14 @@ describe('launch lifecycle', () => {
 
     it('releasing a reserved name is admin-only', async () => {
       await expect(
-        controller.write.removeReservedNames([['brand2999']], {
+        namePolicy.write.removeReservedNames([['brand2999']], {
           account: guardian,
         }),
-      ).toBeRevertedWithString(OWNABLE)
-      await controller.write.removeReservedNames([['brand2999']], {
+      ).toBeRevertedWithCustomError('NotOwner')
+      await namePolicy.write.removeReservedNames([['brand2999']], {
         account: admin,
       })
-      expect(await controller.read.reservedNames([labelhash('brand2999')])).toBe(
+      expect(await namePolicy.read.reservedNames([labelhash('brand2999')])).toBe(
         NONE,
       )
     })
@@ -840,7 +862,7 @@ describe('launch lifecycle', () => {
           account: buyer,
           value: 2n * yearPriceUSD(6),
         }),
-      ).toBeRevertedWithCustomError('NameReserved')
+      ).toBeRevertedWithCustomErrorFrom(namePolicy, 'NameReserved')
     })
 
     it('anyone may renew anyone name — renewal is unauthenticated by design', async () => {
@@ -934,10 +956,10 @@ describe('launch lifecycle', () => {
     })
 
     it('brand outreach continues with no horizon', async () => {
-      await controller.write.addReservedNames([['latebrand'], TRADEMARK], {
+      await namePolicy.write.addReservedNames([['latebrand'], TRADEMARK], {
         account: guardian,
       })
-      await controller.write.registerReserved(
+      await namePolicy.write.registerReserved(
         ['latebrand', brand.address, MIN_REGISTRATION],
         { account: admin },
       )
@@ -1031,9 +1053,9 @@ describe('launch lifecycle', () => {
       const held = 'freshname'
       const tokenId = BigInt(labelhash(held))
       // admin cannot re-register it
-      await controller.write.addReservedNames([[held], TRADEMARK], { account: admin })
+      await namePolicy.write.addReservedNames([[held], TRADEMARK], { account: admin })
       await expect(
-        controller.write.registerReserved([held, admin.address, MIN_REGISTRATION], {
+        namePolicy.write.registerReserved([held, admin.address, MIN_REGISTRATION], {
           account: admin,
         }),
       ).toBeRevertedWithoutReason()

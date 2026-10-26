@@ -14,7 +14,7 @@ import {
 } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
-const TRADEMARK = 2 // SimplexController.Reason.Trademark
+const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
 
 const connection = await hre.network.connect()
 const [ownerClient, guardianClient, registrarClient, aliceClient] =
@@ -88,9 +88,9 @@ describe('public sales switch', () => {
   })
 
   it('registerReserved is exempt', async () => {
-    const { controller } = await load()
-    await controller.write.addReservedNames([['reserved'], TRADEMARK], { account: owner })
-    await controller.write.registerReserved(['reserved', alice.address, MIN_REGISTRATION], {
+    const { namePolicy } = await load()
+    await namePolicy.write.addReservedNames([['reserved'], TRADEMARK], { account: owner })
+    await namePolicy.write.registerReserved(['reserved', alice.address, MIN_REGISTRATION], {
       account: owner,
     })
   })

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
+  deployNamePolicy,
   deployNamesV2,
   MIN_REGISTRATION,
   registration,
@@ -11,7 +12,7 @@ import {
   yearPriceUSD,
 } from './fixtures/namesV2.js'
 
-const TRADEMARK = 2 // SimplexController.Reason.Trademark
+const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
 
 const connection = await hre.network.connect()
 const [ownerClient, guardianClient, registrarClient, aliceClient] =
@@ -69,7 +70,13 @@ async function fixture() {
     [registrar.address, AMPLE_ALLOWANCE],
     { account: guardian },
   )
-  return { ...f, controller, sponsor }
+  const { namePolicy } = await deployNamePolicy(
+    connection,
+    controller,
+    f.baseRegistrar,
+    owner.address,
+  )
+  return { ...f, controller, sponsor, namePolicy }
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
@@ -83,7 +90,7 @@ const load = () => connection.networkHelpers.loadFixture(fixture)
  */
 describe('reservation vs. registration race', () => {
   it('a squatter who commits on seeing the reservation cannot land in time', async () => {
-    const { controller } = await load()
+    const { controller, namePolicy } = await load()
     const reg = registration('targetname', squatter.address)
 
     // the squatter reads the guardian's pending addReservedNames and commits
@@ -92,7 +99,7 @@ describe('reservation vs. registration race', () => {
       { account: squatter },
     )
     // the reservation mines in the next block, long before 60s elapse
-    await controller.write.addReservedNames([['targetname'], TRADEMARK], {
+    await namePolicy.write.addReservedNames([['targetname'], TRADEMARK], {
       account: guardian,
     })
 
@@ -103,11 +110,11 @@ describe('reservation vs. registration race', () => {
         account: squatter,
         value: 2n * yearPriceUSD(10),
       }),
-    ).toBeRevertedWithCustomError('NameReserved')
+    ).toBeRevertedWithCustomErrorFrom(namePolicy, 'NameReserved')
   })
 
   it('the commitment age is what does it — an aged commitment is refused just the same', async () => {
-    const { controller } = await load()
+    const { controller, namePolicy } = await load()
     const reg = registration('warmtarget', squatter.address)
 
     // a speculative squatter pre-commits and lets it mature *before* any
@@ -119,7 +126,7 @@ describe('reservation vs. registration race', () => {
     await connection.networkHelpers.time.increase(Number(MIN_COMMITMENT_AGE) + 1)
 
     // the reservation still wins, because it is checked at registration time
-    await controller.write.addReservedNames([['warmtarget'], TRADEMARK], {
+    await namePolicy.write.addReservedNames([['warmtarget'], TRADEMARK], {
       account: guardian,
     })
     await expect(
@@ -127,7 +134,7 @@ describe('reservation vs. registration race', () => {
         account: squatter,
         value: 2n * yearPriceUSD(10),
       }),
-    ).toBeRevertedWithCustomError('NameReserved')
+    ).toBeRevertedWithCustomErrorFrom(namePolicy, 'NameReserved')
   })
 
   it('an immature commitment is refused, which is the property the race relies on', async () => {
@@ -161,11 +168,11 @@ describe('reservation vs. registration race', () => {
   })
 
   it('registerReserved needs no commitment, so the owner is never in the race', async () => {
-    const { controller, baseRegistrar } = await load()
-    await controller.write.addReservedNames([['ownerhands'], TRADEMARK], {
+    const { namePolicy, baseRegistrar } = await load()
+    await namePolicy.write.addReservedNames([['ownerhands'], TRADEMARK], {
       account: guardian,
     })
-    await controller.write.registerReserved(
+    await namePolicy.write.registerReserved(
       ['ownerhands', squatter.address, MIN_REGISTRATION],
       { account: owner },
     )

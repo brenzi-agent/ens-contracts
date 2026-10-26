@@ -15,7 +15,7 @@ import {Resolver} from "../resolvers/Resolver.sol";
 import {ENS} from "../registry/ENS.sol";
 import {IETHRegistrarController, IPriceOracle} from "../ethregistrar/IETHRegistrarController.sol";
 import {IPriceOracleUSD} from "../ethregistrar/IPriceOracleUSD.sol";
-import {IBonaFideTerms, IBonaFideTermsBinding} from "./IBonaFideTerms.sol";
+import {INamePolicy, INamePolicyBinding} from "./INamePolicy.sol";
 
 /// @dev `clearRecords` lives on ResolverBase, not the Resolver interface the
 ///      controller already imports. Declared minimally rather than pulling the
@@ -23,6 +23,9 @@ import {IBonaFideTerms, IBonaFideTermsBinding} from "./IBonaFideTerms.sol";
 interface IClearableResolver {
     function clearRecords(bytes32 node) external;
 }
+
+uint256 constant MIN_REGISTRATION = 730 days;
+uint256 constant MAX_SPONSORED_REGISTRATION = 4015 days;
 
 /// @dev Fork of ETHRegistrarController with additional access controls:
 ///      - Minimum name length gate (admin can lower monotonically)
@@ -41,10 +44,10 @@ contract SimplexController is
 {
     using StringUtils for *;
 
-    uint256 public constant MIN_REGISTRATION_DURATION = 730 days;
+    uint256 public constant MIN_REGISTRATION_DURATION = MIN_REGISTRATION;
     uint256 public constant MIN_RENEWAL_DURATION = 365 days;
     uint256 public constant MAX_REGISTRATION_DURATION = 1095 days;
-    uint256 public constant MAX_SPONSORED_REGISTRATION_DURATION = 4015 days;
+    uint256 public constant MAX_SPONSORED_REGISTRATION_DURATION = MAX_SPONSORED_REGISTRATION;
 
     // Manual reentrancy guard (see `_reentrancyStatus` + `nonReentrant`).
     // Implemented by hand rather than inheriting ReentrancyGuardUpgradeable so
@@ -75,25 +78,11 @@ contract SimplexController is
     ///      storage variable would shift every slot below it.
     string public tldSuffix;
 
-    /// @dev APPEND ONLY once names are reserved. The members are stored as their
-    ///      positions, so reordering or removing one silently relabels every name
-    ///      already reserved under it and nothing on chain can tell. `None` must
-    ///      stay 0, because `delete` writes zero. The wording a user reads is
-    ///      client-side.
-    enum Reason {
-        None,
-        Internal,
-        Trademark,
-        Community
-    }
-
     mapping(bytes32 => uint256) public commitments;
 
     // --- Simplex additions ---
     uint8 public minCharLength;
-    /// @dev Reason.None means not reserved, so this one mapping answers both
-    ///      "is it reserved" and "why" - the two cannot drift apart.
-    mapping(bytes32 => Reason) public reservedNames;
+    mapping(bytes32 => uint8) private _unusedReservedNames;
     IERC721 public smpxNft;
     bool public nftGateEnabled;
     // Was `priceOracleFrozen`. `freezePriceOracle` is gone: the Chainlink feed is
@@ -106,7 +95,6 @@ contract SimplexController is
     error CommitmentTooNew(bytes32 commitment, uint256 minimumCommitmentTimestamp, uint256 currentTimestamp);
     error CommitmentTooOld(bytes32 commitment, uint256 maximumCommitmentTimestamp, uint256 currentTimestamp);
     error NameNotAvailable(string name);
-    error ReasonRequired();
     error DurationTooShort(uint256 duration);
     error DurationTooLong(uint256 duration);
     error ResolverRequiredWhenDataSupplied();
@@ -114,7 +102,6 @@ contract SimplexController is
     error UnexpiredCommitmentExists(bytes32 commitment);
     error InsufficientValue();
     error TransferFailed();
-    error NameNotReserved(string name);
     struct SimplexConfig {
         bytes32 tldNode;
         string tldSuffix;
@@ -160,20 +147,17 @@ contract SimplexController is
     );
 
     event MinCharLengthChanged(uint8 newMinCharLength);
-    event ReservedNameAdded(string name, Reason reason);
-    event ReservedNameReasonChanged(string name, Reason reason);
-    event ReservedNameRemoved(string name);
     event NftGateDisabled();
     event PriceOracleChanged(IPriceOracleUSD indexed newOracle);
     event BeneficiaryChanged(address indexed beneficiary);
     event SponsorChanged(address indexed sponsor);
     event DefaultResolverChanged(address indexed resolver);
-    event BonaFideHookChanged(address indexed hook);
+    event NamePolicyChanged(address indexed namePolicy);
     event PublicSalesOpenChanged(bool open);
     event ContractFrozen();
 
     error ReentrantCall();
-    error BonaFideHookMismatch();
+    error NamePolicyMismatch();
 
     /// @dev Manual `nonReentrant`. A freshly-zero `_reentrancyStatus` (the case
     ///      for the already-deployed instance, whose `initialize` does not
@@ -293,13 +277,13 @@ contract SimplexController is
     }
 
     /// @notice Survives `freeze`.
-    function setBonaFideHook(address hook) external onlyOwner {
-        if (
-            hook != address(0) &&
-            IBonaFideTermsBinding(hook).controller() != address(this)
-        ) revert BonaFideHookMismatch();
-        bonaFideHook = hook;
-        emit BonaFideHookChanged(hook);
+    function setNamePolicy(address newNamePolicy) external onlyOwner {
+        if (newNamePolicy == address(0)) revert ZeroAddress();
+        if (INamePolicyBinding(newNamePolicy).controller() != address(this))
+            revert NamePolicyMismatch();
+        INamePolicy(newNamePolicy).isReserved(0);
+        namePolicy = newNamePolicy;
+        emit NamePolicyChanged(newNamePolicy);
     }
 
     /// @notice Open or close the payable registration path. Two-way until `freeze`,
@@ -311,9 +295,10 @@ contract SimplexController is
         emit PublicSalesOpenChanged(open);
     }
 
-    /// @notice One-way. Makes the implementation and the sponsor permanent and locks the sales
-    ///         switch in its current position. Everything else the owner can do
-    ///         survives, including `setPriceOracle` and the reserved-name setters.
+    /// @notice One-way. Makes the implementation, the name policy's implementation and the
+    ///         sponsor permanent and locks the sales switch in its current position. Everything
+    ///         else the owner can do survives, including `setPriceOracle` and the name policy's
+    ///         setters.
     /// @dev    Refuses while sales are closed. Freezing then would shut the
     ///         payable path permanently — `setPublicSalesOpen` and the upgrade
     ///         escape are disabled by the same flag — and the ordering is
@@ -341,79 +326,6 @@ contract SimplexController is
         if (newMinCharLength >= minCharLength) revert MinCharLengthCanOnlyDecrease();
         minCharLength = newMinCharLength;
         emit MinCharLengthChanged(newMinCharLength);
-    }
-
-    /// @notice Also stops the renewal of a registered name.
-    /// @param reason `Reason.None` is refused: it is the value that means "not
-    ///        reserved", so it would make this function silently unreserve.
-    function addReservedNames(
-        string[] calldata names,
-        Reason reason
-    ) external onlyOwnerOrBeneficiary {
-        if (reason == Reason.None) revert ReasonRequired();
-        for (uint256 i = 0; i < names.length; ++i) {
-            reservedNames[keccak256(bytes(names[i]))] = reason;
-            emit ReservedNameAdded(names[i], reason);
-        }
-    }
-
-    /// @notice Reclassifies without unreserving: removing and re-adding would
-    ///         open the name to a squatter for the gap between the two.
-    function setReservationReason(
-        string[] calldata names,
-        Reason reason
-    ) external onlyOwnerOrBeneficiary {
-        if (reason == Reason.None) revert ReasonRequired();
-        for (uint256 i = 0; i < names.length; ++i) {
-            bytes32 labelhash = keccak256(bytes(names[i]));
-            if (reservedNames[labelhash] == Reason.None)
-                revert NameNotReserved(names[i]);
-            reservedNames[labelhash] = reason;
-            emit ReservedNameReasonChanged(names[i], reason);
-        }
-    }
-
-    /// @notice Symmetric bulk-remove. Pass a single-element array to remove
-    ///         one. Each removal emits a `ReservedNameRemoved` event.
-    function removeReservedNames(string[] calldata names) external onlyOwner {
-        for (uint256 i = 0; i < names.length; ++i) {
-            delete reservedNames[keccak256(bytes(names[i]))];
-            emit ReservedNameRemoved(names[i]);
-        }
-    }
-
-    /// @notice Hand a reserved name to its brand. Sets the default resolver on
-    ///         the node and grants edit credits, so the name resolves immediately
-    ///         and the brand's later record edits can be relayed — a brand never
-    ///         has to hold ETH. `setSubnodeOwner` alone sets an owner but not a
-    ///         resolver, so without this the name would not resolve at all.
-    ///         Releases the reservation, so the name renews like any other.
-    function registerReserved(
-        string calldata label,
-        address owner,
-        uint256 duration
-    ) external onlyOwner {
-        bytes32 labelhash = keccak256(bytes(label));
-        if (reservedNames[labelhash] == Reason.None)
-            revert NameNotReserved(label);
-        if (duration < MIN_REGISTRATION_DURATION) revert DurationTooShort(duration);
-        if (duration > MAX_SPONSORED_REGISTRATION_DURATION) revert DurationTooLong(duration);
-
-        delete reservedNames[labelhash];
-        emit ReservedNameRemoved(label);
-
-        bytes32 namehash = keccak256(abi.encodePacked(tldNode, labelhash));
-        _retireStaleRecords(namehash);
-
-        address resolver = defaultResolver;
-        if (resolver == address(0)) {
-            base.registerWithLabel(label, owner, duration);
-            return;
-        }
-
-        base.registerWithLabel(label, address(this), duration);
-        ens.setRecord(namehash, address(this), resolver, 0);
-        base.transferFrom(address(this), owner, uint256(labelhash));
     }
 
     function disableNftGate() external onlyOwner {
@@ -455,7 +367,7 @@ contract SimplexController is
         bytes32 labelhash = keccak256(bytes(label));
         return
             _available(label, labelhash) &&
-            reservedNames[labelhash] == Reason.None;
+            !INamePolicy(namePolicy).isReserved(labelhash);
     }
 
     function makeCommitment(
@@ -491,8 +403,6 @@ contract SimplexController is
     ) internal view {
         if (label.strlen() < minCharLength)
             revert NameTooShort(label, minCharLength);
-        if (reservedNames[keccak256(bytes(label))] != Reason.None)
-            revert NameReserved(label);
         if (checkNft && nftGateEnabled && smpxNft.balanceOf(msg.sender) == 0)
             revert NftRequired();
     }
@@ -613,13 +523,12 @@ contract SimplexController is
 
         delete (commitments[commitment]);
 
-        if (bonaFideHook != address(0))
-            IBonaFideTerms(bonaFideHook).consumeRegistration(
-                registration.label,
-                labelhash,
-                commitment,
-                registration.owner
-            );
+        INamePolicy(namePolicy).consumeRegistration(
+            registration.label,
+            labelhash,
+            commitment,
+            registration.owner
+        );
 
         bytes32 namehash = keccak256(abi.encodePacked(tldNode, labelhash));
 
@@ -709,7 +618,8 @@ contract SimplexController is
         uint256 horizon
     ) private returns (uint256 expires) {
         if (duration < MIN_RENEWAL_DURATION) revert DurationTooShort(duration);
-        if (reservedNames[labelhash] != Reason.None) revert NameReserved(label);
+        if (INamePolicy(namePolicy).isReserved(labelhash))
+            revert NameReserved(label);
 
         expires = base.renew(uint256(labelhash), duration);
         if (expires > block.timestamp + horizon) revert DurationTooLong(duration);
@@ -785,7 +695,7 @@ contract SimplexController is
     ///      was rotated, quietly reopening the stale-record leak for every name
     ///      still pointing at the old one.
     mapping(address => bool) public wasDefaultResolver;
-    address public bonaFideHook;
+    address public namePolicy;
 
     uint256[43] private __gap;
 }

@@ -12,7 +12,7 @@ import {
 } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
-const TRADEMARK = 2 // SimplexController.Reason.Trademark
+const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
 const GRACE_PERIOD = 90n * DAY
 
 const connection = await hre.network.connect()
@@ -78,9 +78,9 @@ describe('no reverse resolution', () => {
 
 describe('registerReserved', () => {
   it('gives the brand the token, the registry node and a working resolver', async () => {
-    const { controller, ens, baseRegistrar, resolver } = await load()
-    await controller.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
-    await controller.write.registerReserved(['brandname', brand.address, MIN_REGISTRATION], {
+    const { namePolicy, ens, baseRegistrar, resolver } = await load()
+    await namePolicy.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
+    await namePolicy.write.registerReserved(['brandname', brand.address, MIN_REGISTRATION], {
       account: owner,
     })
 
@@ -98,10 +98,10 @@ describe('registerReserved', () => {
   })
 
   it('releases the reservation, so the brand renews like any holder', async () => {
-    const { controller, baseRegistrar } = await load()
-    await controller.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
+    const { controller, namePolicy, baseRegistrar } = await load()
+    await namePolicy.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
     await expect(
-      controller.write.registerReserved(['brandname', brand.address, MIN_REGISTRATION], {
+      namePolicy.write.registerReserved(['brandname', brand.address, MIN_REGISTRATION], {
         account: owner,
       }),
     )
@@ -115,9 +115,9 @@ describe('registerReserved', () => {
   })
 
   it('the brand can then have records relayed without ever holding ETH', async () => {
-    const { controller, resolver } = await load()
-    await controller.write.addReservedNames([['relayable'], TRADEMARK], { account: owner })
-    await controller.write.registerReserved(['relayable', brand.address, MIN_REGISTRATION], {
+    const { namePolicy, resolver } = await load()
+    await namePolicy.write.addReservedNames([['relayable'], TRADEMARK], { account: owner })
+    await namePolicy.write.registerReserved(['relayable', brand.address, MIN_REGISTRATION], {
       account: owner,
     })
     expect((await resolver.read.relayedSigner([node('relayable')])).toLowerCase()).toBe(
@@ -126,21 +126,21 @@ describe('registerReserved', () => {
   })
 
   it('refuses a name that is not reserved', async () => {
-    const { controller } = await load()
+    const { namePolicy } = await load()
     await expect(
-      controller.write.registerReserved(['unreserved', brand.address, MIN_REGISTRATION], {
+      namePolicy.write.registerReserved(['unreserved', brand.address, MIN_REGISTRATION], {
         account: owner,
       }),
     ).toBeRevertedWithCustomError('NameNotReserved')
   })
 
   it('refuses a duration below the minimum', async () => {
-    const { controller } = await load()
-    await controller.write.addReservedNames([['tooshortterm'], TRADEMARK], {
+    const { namePolicy } = await load()
+    await namePolicy.write.addReservedNames([['tooshortterm'], TRADEMARK], {
       account: owner,
     })
     await expect(
-      controller.write.registerReserved(
+      namePolicy.write.registerReserved(
         ['tooshortterm', brand.address, 27n * DAY],
         { account: owner },
       ),
@@ -148,20 +148,20 @@ describe('registerReserved', () => {
   })
 
   it('is owner-only — the guardian may reserve but not hand out', async () => {
-    const { controller } = await load()
-    await controller.write.addReservedNames([['guardedname'], TRADEMARK], {
+    const { namePolicy } = await load()
+    await namePolicy.write.addReservedNames([['guardedname'], TRADEMARK], {
       account: guardian,
     })
     await expect(
-      controller.write.registerReserved(
+      namePolicy.write.registerReserved(
         ['guardedname', brand.address, MIN_REGISTRATION],
         { account: guardian },
       ),
-    ).toBeRevertedWithString('Ownable: caller is not the owner')
+    ).toBeRevertedWithCustomError('NotOwner')
   })
 
   it('cannot take a name someone already holds', async () => {
-    const { controller, baseRegistrar } = await load()
+    const { controller, namePolicy, baseRegistrar } = await load()
     await controller.write.setPublicSalesOpen([true], { account: owner })
     const reg = {
       label: 'alreadyheld',
@@ -182,11 +182,11 @@ describe('registerReserved', () => {
       value: 10n ** 21n,
     })
 
-    await controller.write.addReservedNames([['alreadyheld'], TRADEMARK], {
+    await namePolicy.write.addReservedNames([['alreadyheld'], TRADEMARK], {
       account: owner,
     })
     await expect(
-      controller.write.registerReserved(
+      namePolicy.write.registerReserved(
         ['alreadyheld', owner.address, MIN_REGISTRATION],
         { account: owner },
       ),
@@ -199,12 +199,12 @@ describe('registerReserved', () => {
   })
 
   it('degrades to a bare registration when no default resolver is set', async () => {
-    const { controller, ens } = await load()
+    const { controller, namePolicy, ens } = await load()
     await controller.write.setDefaultResolver([zeroAddress], { account: owner })
-    await controller.write.addReservedNames([['noresolver'], TRADEMARK], {
+    await namePolicy.write.addReservedNames([['noresolver'], TRADEMARK], {
       account: owner,
     })
-    await controller.write.registerReserved(
+    await namePolicy.write.registerReserved(
       ['noresolver', brand.address, MIN_REGISTRATION],
       { account: owner },
     )
@@ -220,11 +220,11 @@ describe('registerReserved', () => {
 describe('a disputed name', () => {
   const disputed = async () => {
     const f = await load()
-    await f.controller.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
-    await f.controller.write.registerReserved(['brandname', brand.address, MIN_REGISTRATION], {
+    await f.namePolicy.write.addReservedNames([['brandname'], TRADEMARK], { account: owner })
+    await f.namePolicy.write.registerReserved(['brandname', brand.address, MIN_REGISTRATION], {
       account: owner,
     })
-    await f.controller.write.addReservedNames([['brandname'], TRADEMARK], { account: guardian })
+    await f.namePolicy.write.addReservedNames([['brandname'], TRADEMARK], { account: guardian })
     return f
   }
 
@@ -244,8 +244,8 @@ describe('a disputed name', () => {
   })
 
   it('can be renewed again once the admin releases it', async () => {
-    const { controller, baseRegistrar } = await disputed()
-    await controller.write.removeReservedNames([['brandname']], { account: owner })
+    const { controller, namePolicy, baseRegistrar } = await disputed()
+    await namePolicy.write.removeReservedNames([['brandname']], { account: owner })
     const id = BigInt(labelhash('brandname'))
     const before = await baseRegistrar.read.nameExpires([id])
     await renewBrandname(controller)
@@ -253,11 +253,11 @@ describe('a disputed name', () => {
   })
 
   it('stays reserved past its grace period, and the admin registers it to the claimant', async () => {
-    const { controller, baseRegistrar } = await disputed()
+    const { controller, namePolicy, baseRegistrar } = await disputed()
     await connection.networkHelpers.time.increase(MIN_REGISTRATION + GRACE_PERIOD + 1n)
     expect(await controller.read.available(['brandname'])).toBe(false)
 
-    await controller.write.registerReserved(['brandname', claimant.address, MIN_REGISTRATION], {
+    await namePolicy.write.registerReserved(['brandname', claimant.address, MIN_REGISTRATION], {
       account: owner,
     })
     expect(
