@@ -1280,18 +1280,17 @@ describe('SimplexController', () => {
       expect(balAfter - balBefore).toBe(price.base)
     })
 
-    it('renew bypasses the gates (works on a now-reserved name)', async () => {
-      const { controller, baseRegistrar } = await loadFixture()
+    it('renew reverts NameReserved on a now-reserved name', async () => {
+      const { controller } = await loadFixture()
       await commitAndRegister(controller, 'reservedrenew', registrantAccount)
       await controller.write.addReservedNames([['reservedrenew'], TRADEMARK], { account: ownerAccount })
-      const id = BigInt(labelhash('reservedrenew'))
-      const before = await baseRegistrar.read.nameExpires([id])
       const price = await controller.read.rentPrice(['reservedrenew', RENEWAL_TIME])
-      await controller.write.renew(['reservedrenew', RENEWAL_TIME, zeroHash], {
-        account: registrantAccount,
-        value: price.base,
-      })
-      expect((await baseRegistrar.read.nameExpires([id])) > before).toBe(true)
+      await expect(
+        controller.write.renew(['reservedrenew', RENEWAL_TIME, zeroHash], {
+          account: registrantAccount,
+          value: price.base,
+        }),
+      ).toBeRevertedWithCustomError('NameReserved')
     })
   })
 
