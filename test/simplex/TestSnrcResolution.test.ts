@@ -82,15 +82,16 @@ async function fixture() {
     ensRegistry.address,
     ownerAccount.address,
   ])
-  // The verbatim PublicResolver, wired with nameWrapper = subnames so it
-  // authorises subname records against subnames.ownerOf.
-  const resolver = await connection.viem.deployContract('PublicResolver', [
+  // SimplexResolver, wired with nameWrapper = subnames so it authorises
+  // subname records against subnames.ownerOf.
+  const resolver = await connection.viem.deployContract('SimplexResolver', [
     ensRegistry.address,
     subnames.address,
     zeroAddress,
     reverseRegistrar.address,
   ])
   await subnames.write.setResolver([resolver.address])
+  await subnames.write.onExpiryChanged([NAME_NODE, 2n ** 64n], { account: ownerAccount })
 
   // UniversalResolver + its batch gateway. PublicResolver is a legacy resolver,
   // so the UR routes reads through the batch gateway; the `x-batch-gateway:true`
