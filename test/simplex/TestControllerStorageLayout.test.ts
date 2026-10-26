@@ -143,6 +143,23 @@ describe('controller storage layout', () => {
     )
   })
 
+  it('the bona fide hook sits after wasDefaultResolver', async () => {
+    const { controller, baseRegistrar } = await load()
+    const base = await snapshot(controller.address)
+    await controller.write.setPublicSalesOpen([true], { account: owner })
+    const [resolverSlot] = changed(base, await snapshot(controller.address))
+
+    const bonaFide = await connection.viem.deployContract('SimplexBonaFideTerms', [
+      controller.address,
+      baseRegistrar.address,
+    ])
+    const before = await snapshot(controller.address)
+    await controller.write.setBonaFideHook([bonaFide.address], { account: owner })
+    const after = await snapshot(controller.address)
+    expect(changed(before, after)).toEqual([resolverSlot + 2])
+    expect(after[resolverSlot + 2]).toBe(pad(bonaFide.address).toLowerCase())
+  })
+
   it('the sponsor sits in its own slot', async () => {
     const { controller } = await load()
     const before = await snapshot(controller.address)

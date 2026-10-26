@@ -233,6 +233,20 @@ export const eip712Types = {
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
+  AcceptBonaFideTerms: [
+    { name: 'commitment', type: 'bytes32' },
+    { name: 'termsHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+  AcceptBonaFideTermsForClaim: [
+    { name: 'tokenId', type: 'uint256' },
+    { name: 'from', type: 'address' },
+    { name: 'offer', type: 'uint256' },
+    { name: 'termsHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
 } as const
 
 export const FAR_FUTURE = 4102444800n
@@ -246,7 +260,8 @@ export async function signIntent(
     | 'SimplexENSRegistry'
     | 'SimplexSubnames'
     | 'SimplexNames'
-    | 'SimplexSponsor',
+    | 'SimplexSponsor'
+    | 'SimplexBonaFideTerms',
   verifyingContract: `0x${string}`,
   primaryType: keyof typeof eip712Types,
   message: Record<string, unknown>,
