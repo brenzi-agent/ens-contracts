@@ -40,7 +40,6 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     mapping(uint256 => mapping(address => mapping(address => mapping(uint256 => bytes32))))
         public acceptedClaimTerms;
     mapping(address => uint256) public nonces;
-    string public termsText;
 
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256(
@@ -216,8 +215,9 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         }
     }
 
-    /// @notice `termsHash` is the keccak256 of the text kept here, so the two cannot disagree.
-    function setTerms(string calldata text) external onlyOwner {
+    function setTerms(
+        string calldata text
+    ) external onlyOwner {
         if (bytes(text).length == 0) revert ZeroTerms();
         termsHash = keccak256(bytes(text));
         termsText = text;
@@ -406,5 +406,6 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
             revert ImplementationMismatch();
     }
 
-    uint256[45] private __gap;
+    string public termsText;
+    uint256[44] private __gap;
 }

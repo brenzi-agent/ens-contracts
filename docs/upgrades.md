@@ -135,8 +135,11 @@ the controller's `owner()`, reverts `Frozen` once the controller is frozen, and
 reverts `ImplementationMismatch` unless the new implementation's immutable
 `controller()` and `registrar()` equal the current ones. Its own variables are
 `_names` (each name's bona fide flag and reservation reason, in one slot),
-`termsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`, then
-`uint256[45] __gap`; the invariants above apply to it unchanged.
+`termsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`, `termsText`, then
+`uint256[44] __gap`; the invariants above apply to it unchanged. A proxy that
+already has terms is upgraded to an implementation with `termsText` by
+`upgradeToAndCall(next, abi.encodeCall(SimplexNamePolicy.setTerms, (text)))`,
+so its text is set in the same transaction as the upgrade.
 
 The policy compiles in the controller's `MIN_REGISTRATION` and
 `MAX_SPONSORED_REGISTRATION`, and reads the controller's `ens` and `tldNode` once,

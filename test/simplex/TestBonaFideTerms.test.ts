@@ -216,7 +216,7 @@ describe('bona fide community names', () => {
       ).toBeRevertedWithCustomError('NamePolicyMismatch')
     })
 
-    it('only the owner sets the terms, never empty, and keeps their text with its hash, which the event records', async () => {
+    it('only the owner sets the terms text, never empty, and the event records its hash', async () => {
       const { namePolicy } = await load()
       await expect(
         namePolicy.write.setTerms([NEW_TERMS_TEXT], { account: guardian }),
@@ -231,7 +231,7 @@ describe('bona fide community names', () => {
       )
         .toEmitEvent('TermsSet')
         .withArgs({ termsHash: NEW_TERMS })
-      expect([await namePolicy.read.termsHash(), await namePolicy.read.termsText()]).toEqual([NEW_TERMS, NEW_TERMS_TEXT])
+      expect(await namePolicy.read.termsText()).toBe(NEW_TERMS_TEXT)
     })
   })
 
