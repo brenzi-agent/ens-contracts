@@ -24,8 +24,10 @@ import { DAY } from '../fixtures/constants.js'
 
 const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
 const GRACE_PERIOD = 90n * DAY
-const TERMS = keccak256(toHex('bona fide community terms v1'))
-const NEW_TERMS = keccak256(toHex('bona fide community terms v2'))
+const TERMS_TEXT = 'bona fide community terms v1'
+const NEW_TERMS_TEXT = 'bona fide community terms v2'
+const TERMS = keccak256(toHex(TERMS_TEXT))
+const NEW_TERMS = keccak256(toHex(NEW_TERMS_TEXT))
 const COMMUNITY_ID = BigInt(labelhash('community'))
 
 const connection = await hre.network.connect()
@@ -57,7 +59,7 @@ async function fixture() {
     },
   )
   await f.controller.write.setPublicSalesOpen([true], { account: owner })
-  await f.namePolicy.write.setTerms([TERMS, 'ipfs://terms'], { account: owner })
+  await f.namePolicy.write.setTerms([TERMS_TEXT], { account: owner })
   await f.namePolicy.write.addBonaFideNames([['community']], {
     account: guardian,
   })
@@ -214,21 +216,22 @@ describe('bona fide community names', () => {
       ).toBeRevertedWithCustomError('NamePolicyMismatch')
     })
 
-    it('only the owner sets the terms, never to zero, and the event records the hash and URI', async () => {
+    it('only the owner sets the terms, never empty, and keeps their text with its hash, which the event records', async () => {
       const { namePolicy } = await load()
       await expect(
-        namePolicy.write.setTerms([NEW_TERMS, ''], { account: guardian }),
+        namePolicy.write.setTerms([NEW_TERMS_TEXT], { account: guardian }),
       ).toBeRevertedWithCustomError('NotOwner')
       await expect(
-        namePolicy.write.setTerms([zeroHash, ''], { account: owner }),
+        namePolicy.write.setTerms([''], { account: owner }),
       ).toBeRevertedWithCustomError('ZeroTerms')
       await expect(
-        namePolicy.write.setTerms([NEW_TERMS, 'ipfs://terms-v2'], {
+        namePolicy.write.setTerms([NEW_TERMS_TEXT], {
           account: owner,
         }),
       )
         .toEmitEvent('TermsSet')
-        .withArgs({ termsHash: NEW_TERMS, termsURI: 'ipfs://terms-v2' })
+        .withArgs({ termsHash: NEW_TERMS })
+      expect([await namePolicy.read.termsHash(), await namePolicy.read.termsText()]).toEqual([NEW_TERMS, NEW_TERMS_TEXT])
     })
   })
 
@@ -364,7 +367,7 @@ describe('bona fide community names', () => {
           account: alice,
         },
       )
-      await namePolicy.write.setTerms([NEW_TERMS, 'ipfs://terms-v2'], {
+      await namePolicy.write.setTerms([NEW_TERMS_TEXT], {
         account: owner,
       })
       await expect(register(controller, reg)).toBeRevertedWithCustomErrorFrom(
@@ -673,7 +676,7 @@ describe('bona fide community names', () => {
           account: bob,
         },
       )
-      await f.namePolicy.write.setTerms([NEW_TERMS, 'ipfs://terms-v2'], {
+      await f.namePolicy.write.setTerms([NEW_TERMS_TEXT], {
         account: owner,
       })
       const take = () =>

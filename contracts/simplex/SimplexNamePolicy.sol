@@ -40,6 +40,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     mapping(uint256 => mapping(address => mapping(address => mapping(uint256 => bytes32))))
         public acceptedClaimTerms;
     mapping(address => uint256) public nonces;
+    string public termsText;
 
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256(
@@ -62,7 +63,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     event BonaFideNameAdded(string name);
     event BonaFideNameSkipped(string name);
     event BonaFideNameRemoved(string name);
-    event TermsSet(bytes32 termsHash, string termsURI);
+    event TermsSet(bytes32 termsHash);
     event BonaFideTermsAccepted(
         string name,
         address indexed holder,
@@ -215,13 +216,12 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         }
     }
 
-    function setTerms(
-        bytes32 newTermsHash,
-        string calldata termsURI
-    ) external onlyOwner {
-        if (newTermsHash == bytes32(0)) revert ZeroTerms();
-        termsHash = newTermsHash;
-        emit TermsSet(newTermsHash, termsURI);
+    /// @notice `termsHash` is the keccak256 of the text kept here, so the two cannot disagree.
+    function setTerms(string calldata text) external onlyOwner {
+        if (bytes(text).length == 0) revert ZeroTerms();
+        termsHash = keccak256(bytes(text));
+        termsText = text;
+        emit TermsSet(termsHash);
     }
 
     function commitUnderBonaFideCommunityTerms(
