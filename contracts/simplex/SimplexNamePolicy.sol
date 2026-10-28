@@ -62,7 +62,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     event BonaFideNameAdded(string name);
     event BonaFideNameSkipped(string name);
     event BonaFideNameRemoved(string name);
-    event TermsSet(bytes32 termsHash, string termsURI);
+    event TermsSet(bytes32 termsHash);
     event BonaFideTermsAccepted(
         string name,
         address indexed holder,
@@ -216,12 +216,12 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     }
 
     function setTerms(
-        bytes32 newTermsHash,
-        string calldata termsURI
+        string calldata text
     ) external onlyOwner {
-        if (newTermsHash == bytes32(0)) revert ZeroTerms();
-        termsHash = newTermsHash;
-        emit TermsSet(newTermsHash, termsURI);
+        if (bytes(text).length == 0) revert ZeroTerms();
+        termsHash = keccak256(bytes(text));
+        termsText = text;
+        emit TermsSet(termsHash);
     }
 
     function commitUnderBonaFideCommunityTerms(
@@ -406,5 +406,6 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
             revert ImplementationMismatch();
     }
 
-    uint256[45] private __gap;
+    string public termsText;
+    uint256[44] private __gap;
 }

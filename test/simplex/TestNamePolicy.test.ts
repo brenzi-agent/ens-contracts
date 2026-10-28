@@ -21,7 +21,8 @@ import {
 import { DAY } from '../fixtures/constants.js'
 
 const GRACE_PERIOD = 90n * DAY
-const TERMS = keccak256(toHex('bona fide community terms v1'))
+const TERMS_TEXT = 'bona fide community terms v1'
+const TERMS = keccak256(toHex(TERMS_TEXT))
 const KEY = 'simplex.contact'
 
 const connection = await hre.network.connect()
@@ -175,7 +176,7 @@ describe('name policy', () => {
         [['reservedname'], Reason.Trademark],
         { account: owner },
       )
-      await namePolicy.write.setTerms([TERMS, 'ipfs://terms'], {
+      await namePolicy.write.setTerms([TERMS_TEXT], {
         account: owner,
       })
       await namePolicy.write.addBonaFideNames([['community']], {
@@ -202,6 +203,7 @@ describe('name policy', () => {
         await namePolicy.read.bonaFideNames([labelhash('community')]),
       ).toBe(true)
       expect(await namePolicy.read.termsHash()).toBe(TERMS)
+      expect(await namePolicy.read.termsText()).toBe(TERMS_TEXT)
       expect(
         await namePolicy.read.acceptedTerms([commitment, alice.address]),
       ).toBe(TERMS)
@@ -357,7 +359,7 @@ describe('name policy', () => {
         ),
       ).toBeRevertedWithCustomError('NotProxy')
       await expect(
-        namePolicyImplementation.write.setTerms([TERMS, 'https://terms'], {
+        namePolicyImplementation.write.setTerms([TERMS_TEXT], {
           account: owner,
         }),
       ).toBeRevertedWithCustomError('NotProxy')
