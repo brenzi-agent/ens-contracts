@@ -56,10 +56,10 @@ export const TLD_NODE = namehash(TLD)
 export const termsLink = (path: string, digit: string) =>
   `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${digit.repeat(40)}/${path}#sha256=${digit.repeat(64)}`
 
-export const NAME_TERMS_LINK = termsLink('name-terms.md', '1')
-export const NAME_TERMS = keccak256(toHex(NAME_TERMS_LINK))
-export const COMMUNITY_NAME_TERMS_LINK = termsLink('community-name-terms.md', '2')
-export const COMMUNITY_NAME_TERMS = keccak256(toHex(COMMUNITY_NAME_TERMS_LINK))
+export const GENERAL_TERMS_LINK = termsLink('general-terms.md', '1')
+export const GENERAL_TERMS = keccak256(toHex(GENERAL_TERMS_LINK))
+export const COMMUNITY_TERMS_LINK = termsLink('community-terms.md', '2')
+export const COMMUNITY_TERMS = keccak256(toHex(COMMUNITY_TERMS_LINK))
 
 /**
  * The full `.simplex` stack, wired as `deploy-simplex.mjs` will wire it:
@@ -193,8 +193,8 @@ export async function deployNamePolicy(
   await controller.write.setNamePolicy([namePolicy.address], {
     account: owner,
   })
-  await namePolicy.write.setNameTerms([NAME_TERMS_LINK], { account: owner })
-  await namePolicy.write.setCommunityNameTerms([COMMUNITY_NAME_TERMS_LINK], {
+  await namePolicy.write.setGeneralTerms([GENERAL_TERMS_LINK], { account: owner })
+  await namePolicy.write.setCommunityTerms([COMMUNITY_TERMS_LINK], {
     account: owner,
   })
   await baseRegistrar.write.setNamePolicy([namePolicy.address])
@@ -286,13 +286,13 @@ export const eip712Types = {
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
-  AcceptNameTerms: [
+  AcceptGeneralTerms: [
     { name: 'commitment', type: 'bytes32' },
     { name: 'termsHash', type: 'bytes32' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
-  AcceptNameTermsForClaim: [
+  AcceptGeneralTermsForClaim: [
     { name: 'tokenId', type: 'uint256' },
     { name: 'from', type: 'address' },
     { name: 'offer', type: 'uint256' },
@@ -300,13 +300,13 @@ export const eip712Types = {
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
-  AcceptCommunityNameTerms: [
+  AcceptCommunityTerms: [
     { name: 'commitment', type: 'bytes32' },
     { name: 'termsHash', type: 'bytes32' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
-  AcceptCommunityNameTermsForClaim: [
+  AcceptCommunityTermsForClaim: [
     { name: 'tokenId', type: 'uint256' },
     { name: 'from', type: 'address' },
     { name: 'offer', type: 'uint256' },
@@ -411,7 +411,7 @@ export async function registerWithCredit(
   )
 }
 
-export async function commitUnderNameTerms(
+export async function commitUnderGeneralTerms(
   connection: NetworkConnection,
   controller: any,
   reg: any,
@@ -421,13 +421,13 @@ export async function commitUnderNameTerms(
     'SimplexNamePolicy',
     await controller.read.namePolicy(),
   )
-  return namePolicy.write.commitUnderNameTerms(
-    [await controller.read.makeCommitment([reg]), NAME_TERMS],
+  return namePolicy.write.commitUnderGeneralTerms(
+    [await controller.read.makeCommitment([reg]), GENERAL_TERMS],
     options,
   )
 }
 
-export async function signNameTermsAcceptance(
+export async function signGeneralTermsAcceptance(
   connection: NetworkConnection,
   controller: any,
   reg: any,
@@ -452,13 +452,13 @@ export async function signNameTermsAcceptance(
     client,
     'SimplexNamePolicy',
     namePolicy.address,
-    'AcceptNameTerms',
-    { commitment, termsHash: NAME_TERMS, nonce, deadline: FAR_FUTURE },
+    'AcceptGeneralTerms',
+    { commitment, termsHash: GENERAL_TERMS, nonce, deadline: FAR_FUTURE },
   )
-  return [commitment, NAME_TERMS, reg.owner, nonce, FAR_FUTURE, sig]
+  return [commitment, GENERAL_TERMS, reg.owner, nonce, FAR_FUTURE, sig]
 }
 
-export async function acceptNameTermsForClaim(
+export async function acceptGeneralTermsForClaim(
   connection: NetworkConnection,
   baseRegistrar: any,
   tokenId: bigint,
@@ -469,8 +469,8 @@ export async function acceptNameTermsForClaim(
     'SimplexNamePolicy',
     await baseRegistrar.read.namePolicy(),
   )
-  return namePolicy.write.acceptNameTermsForClaim(
-    [tokenId, from, await baseRegistrar.read.offers([tokenId]), NAME_TERMS],
+  return namePolicy.write.acceptGeneralTermsForClaim(
+    [tokenId, from, await baseRegistrar.read.offers([tokenId]), GENERAL_TERMS],
     options,
   )
 }

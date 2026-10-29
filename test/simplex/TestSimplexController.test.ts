@@ -7,7 +7,7 @@ import {
   zeroHash,
 } from 'viem'
 
-import { commitUnderNameTerms, deployNamePolicy } from './fixtures/namesV2.js'
+import { commitUnderGeneralTerms, deployNamePolicy } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
 const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
@@ -157,7 +157,7 @@ async function commitAndRegister(
     reverseRecord: 0,
     referrer: zeroHash,
   }
-  await commitUnderNameTerms(connection, controller, registration, { account })
+  await commitUnderGeneralTerms(connection, controller, registration, { account })
   await testClient.increaseTime({ seconds: 601 })
   await testClient.mine({ blocks: 1 })
   const price = await controller.read.rentPrice([label, duration])
@@ -701,7 +701,7 @@ describe('SimplexController', () => {
         reverseRecord: 0,
         referrer: zeroHash,
       }
-      await commitUnderNameTerms(connection, controller, registration, {
+      await commitUnderGeneralTerms(connection, controller, registration, {
         account: gasHog.address,
       })
       await testClient.increaseTime({ seconds: 601 })
@@ -921,7 +921,7 @@ describe('SimplexController', () => {
         reverseRecord: 0,
         referrer: zeroHash,
       }
-      await commitUnderNameTerms(connection, controller, registration, {
+      await commitUnderGeneralTerms(connection, controller, registration, {
         account: registrantAccount,
       })
       await testClient.increaseTime({ seconds: 601 })
@@ -962,7 +962,7 @@ describe('SimplexController', () => {
         await attacker.write.setMode([mode])
 
         const registration = attackRegistration(attacker.address)
-        await commitUnderNameTerms(connection, controller, registration, {
+        await commitUnderGeneralTerms(connection, controller, registration, {
           account: registrantAccount,
         })
         await testClient.increaseTime({ seconds: 601 })
@@ -1022,7 +1022,7 @@ describe('SimplexController', () => {
     registration: any,
     account = registrantAccount,
   ) => {
-    await commitUnderNameTerms(connection, controller, registration, { account })
+    await commitUnderGeneralTerms(connection, controller, registration, { account })
     await testClient.increaseTime({ seconds: 601 })
     await testClient.mine({ blocks: 1 })
     return controller.read.makeCommitment([registration])
@@ -1555,7 +1555,7 @@ describe('SimplexController', () => {
         value: 10_000_000_000_000_000_000n,
       })
       const registration = mkReg({ label: 'refundfail', owner: rejecter.address })
-      await commitUnderNameTerms(connection, controller, registration, {
+      await commitUnderGeneralTerms(connection, controller, registration, {
         account: rejecter.address,
       })
       await testClient.increaseTime({ seconds: 601 })
@@ -1579,7 +1579,7 @@ describe('SimplexController', () => {
         value: 10_000_000_000_000_000_000n,
       })
       const registration = mkReg({ label: 'renewfail', owner: rejecter.address })
-      await commitUnderNameTerms(connection, controller, registration, {
+      await commitUnderGeneralTerms(connection, controller, registration, {
         account: rejecter.address,
       })
       await testClient.increaseTime({ seconds: 601 })

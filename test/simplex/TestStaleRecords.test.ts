@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
-  commitUnderNameTerms,
+  commitUnderGeneralTerms,
   deployNamesV2,
   MIN_REGISTRATION,
   node,
@@ -45,7 +45,7 @@ const load = () => connection.networkHelpers.loadFixture(fixture)
 
 async function sponsoredRegister(controller: any, label: string, to: `0x${string}`, resolver: `0x${string}`) {
   const reg = registration(label, to, { resolver })
-  await commitUnderNameTerms(connection, controller, reg, { account: to })
+  await commitUnderGeneralTerms(connection, controller, reg, { account: to })
   const sponsor = await sponsorOf(connection, controller)
   await registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
@@ -153,7 +153,7 @@ describe('records do not survive re-registration', () => {
         }),
       ],
     })
-    await commitUnderNameTerms(connection, controller, reg, { account: victim })
+    await commitUnderGeneralTerms(connection, controller, reg, { account: victim })
     await registerWithCredit(connection, sponsor, reg, { account: registrar })
 
     // the clear runs before the new records are written, so the new value stands
@@ -199,7 +199,7 @@ describe('records do not survive re-registration', () => {
     const reg = registration('paidagain', victim.address, {
       resolver: resolver.address,
     })
-    await commitUnderNameTerms(connection, controller, reg, { account: victim })
+    await commitUnderGeneralTerms(connection, controller, reg, { account: victim })
     await controller.write.register([reg], {
       account: victim,
       value: 10n ** 21n,

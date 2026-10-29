@@ -13,14 +13,14 @@ import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
-  commitUnderNameTerms,
-  COMMUNITY_NAME_TERMS,
-  COMMUNITY_NAME_TERMS_LINK,
+  commitUnderGeneralTerms,
+  COMMUNITY_TERMS,
+  COMMUNITY_TERMS_LINK,
   deployNamesV2,
   FAR_FUTURE,
+  GENERAL_TERMS,
+  GENERAL_TERMS_LINK,
   MIN_REGISTRATION,
-  NAME_TERMS,
-  NAME_TERMS_LINK,
   registration,
   signIntent,
   signRegistration,
@@ -32,47 +32,47 @@ import { DAY } from '../fixtures/constants.js'
 
 const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
 const GRACE_PERIOD = 90n * DAY
-const NEW_TERMS_LINK = termsLink('community-name-terms.md', '3')
-const TERMS = COMMUNITY_NAME_TERMS
+const NEW_TERMS_LINK = termsLink('community-terms.md', '3')
+const TERMS = COMMUNITY_TERMS
 const NEW_TERMS = keccak256(toHex(NEW_TERMS_LINK))
 const COMMUNITY_ID = BigInt(labelhash('community'))
 
 const KINDS = [
   {
-    title: 'name terms',
+    title: 'general terms',
     label: 'plainname',
     id: BigInt(labelhash('plainname')),
-    link: NAME_TERMS_LINK,
-    hash: NAME_TERMS,
-    otherHash: COMMUNITY_NAME_TERMS,
-    setTerms: 'setNameTerms',
-    termsLink: 'nameTermsLink',
-    termsHash: 'nameTermsHash',
-    termsSet: 'NameTermsSet',
-    commit: 'commitUnderNameTerms',
-    commitWithSig: 'commitUnderNameTermsWithSig',
-    acceptForClaim: 'acceptNameTermsForClaim',
-    acceptForClaimWithSig: 'acceptNameTermsForClaimWithSig',
-    commitType: 'AcceptNameTerms',
-    claimType: 'AcceptNameTermsForClaim',
+    link: GENERAL_TERMS_LINK,
+    hash: GENERAL_TERMS,
+    otherHash: COMMUNITY_TERMS,
+    setTerms: 'setGeneralTerms',
+    termsLink: 'generalTermsLink',
+    termsHash: 'generalTermsHash',
+    termsSet: 'GeneralTermsSet',
+    commit: 'commitUnderGeneralTerms',
+    commitWithSig: 'commitUnderGeneralTermsWithSig',
+    acceptForClaim: 'acceptGeneralTermsForClaim',
+    acceptForClaimWithSig: 'acceptGeneralTermsForClaimWithSig',
+    commitType: 'AcceptGeneralTerms',
+    claimType: 'AcceptGeneralTermsForClaim',
   },
   {
-    title: 'community name terms',
+    title: 'community terms',
     label: 'community',
     id: COMMUNITY_ID,
-    link: COMMUNITY_NAME_TERMS_LINK,
-    hash: COMMUNITY_NAME_TERMS,
-    otherHash: NAME_TERMS,
-    setTerms: 'setCommunityNameTerms',
-    termsLink: 'communityNameTermsLink',
-    termsHash: 'communityNameTermsHash',
-    termsSet: 'CommunityNameTermsSet',
-    commit: 'commitUnderCommunityNameTerms',
-    commitWithSig: 'commitUnderCommunityNameTermsWithSig',
-    acceptForClaim: 'acceptCommunityNameTermsForClaim',
-    acceptForClaimWithSig: 'acceptCommunityNameTermsForClaimWithSig',
-    commitType: 'AcceptCommunityNameTerms',
-    claimType: 'AcceptCommunityNameTermsForClaim',
+    link: COMMUNITY_TERMS_LINK,
+    hash: COMMUNITY_TERMS,
+    otherHash: GENERAL_TERMS,
+    setTerms: 'setCommunityTerms',
+    termsLink: 'communityTermsLink',
+    termsHash: 'communityTermsHash',
+    termsSet: 'CommunityTermsSet',
+    commit: 'commitUnderCommunityTerms',
+    commitWithSig: 'commitUnderCommunityTermsWithSig',
+    acceptForClaim: 'acceptCommunityTermsForClaim',
+    acceptForClaimWithSig: 'acceptCommunityTermsForClaimWithSig',
+    commitType: 'AcceptCommunityTerms',
+    claimType: 'AcceptCommunityTermsForClaim',
   },
 ] as const
 type Kind = (typeof KINDS)[number]
@@ -107,7 +107,7 @@ async function fixture() {
     },
   )
   await f.controller.write.setPublicSalesOpen([true], { account: owner })
-  await f.namePolicy.write.addBonaFideNames([['community']], {
+  await f.namePolicy.write.addCommunityNames([['community']], {
     account: guardian,
   })
   return f
@@ -153,7 +153,7 @@ async function acceptAndRegister(
 async function acceptanceEvents(
   namePolicy: any,
   hash: `0x${string}`,
-  eventName = 'CommunityNameTermsAccepted',
+  eventName = 'CommunityTermsAccepted',
 ) {
   return parseEventLogs({
     abi: namePolicy.abi,
@@ -189,29 +189,29 @@ async function offerToBob({ baseRegistrar }: Fixture, id = COMMUNITY_ID) {
   return baseRegistrar.read.offers([id])
 }
 
-describe('bona fide community names', () => {
+describe('community names', () => {
   describe('listing', () => {
     it('the guardian lists a free name, and only the owner removes it', async () => {
       const { namePolicy } = await load()
       await expect(
-        namePolicy.write.addBonaFideNames([['other']], { account: alice }),
+        namePolicy.write.addCommunityNames([['other']], { account: alice }),
       ).toBeRevertedWithCustomError('NotOwnerOrBeneficiary')
-      await namePolicy.write.addBonaFideNames([['other']], {
+      await namePolicy.write.addCommunityNames([['other']], {
         account: guardian,
       })
-      expect(await namePolicy.read.bonaFideNames([labelhash('other')])).toBe(
+      expect(await namePolicy.read.communityNames([labelhash('other')])).toBe(
         true,
       )
 
       await expect(
-        namePolicy.write.removeBonaFideNames([['other']], {
+        namePolicy.write.removeCommunityNames([['other']], {
           account: guardian,
         }),
       ).toBeRevertedWithCustomError('NotOwner')
-      await namePolicy.write.removeBonaFideNames([['other']], {
+      await namePolicy.write.removeCommunityNames([['other']], {
         account: owner,
       })
-      expect(await namePolicy.read.bonaFideNames([labelhash('other')])).toBe(
+      expect(await namePolicy.read.communityNames([labelhash('other')])).toBe(
         false,
       )
     })
@@ -219,62 +219,66 @@ describe('bona fide community names', () => {
     it('skips a name that is registered or in its grace period, and lists it once free', async () => {
       const { controller, namePolicy } = await load()
       const reg = registration('heldname', alice.address)
-      await commitUnderNameTerms(connection, controller, reg, {
+      await commitUnderGeneralTerms(connection, controller, reg, {
         account: alice,
       })
       await register(controller, reg)
 
       const list = () =>
-        namePolicy.write.addBonaFideNames([['heldname']], { account: guardian })
+        namePolicy.write.addCommunityNames([['heldname']], {
+          account: guardian,
+        })
       await expect(list())
-        .toEmitEvent('BonaFideNameSkipped')
+        .toEmitEvent('CommunityNameSkipped')
         .withArgs({ name: 'heldname' })
       await connection.networkHelpers.time.increase(MIN_REGISTRATION + 1n)
       await expect(list())
-        .toEmitEvent('BonaFideNameSkipped')
+        .toEmitEvent('CommunityNameSkipped')
         .withArgs({ name: 'heldname' })
-      expect(await namePolicy.read.bonaFideNames([labelhash('heldname')])).toBe(
-        false,
-      )
+      expect(
+        await namePolicy.read.communityNames([labelhash('heldname')]),
+      ).toBe(false)
 
       await connection.networkHelpers.time.increase(GRACE_PERIOD)
       await expect(list())
-        .toEmitEvent('BonaFideNameAdded')
+        .toEmitEvent('CommunityNameAdded')
         .withArgs({ name: 'heldname' })
-      expect(await namePolicy.read.bonaFideNames([labelhash('heldname')])).toBe(
-        true,
-      )
+      expect(
+        await namePolicy.read.communityNames([labelhash('heldname')]),
+      ).toBe(true)
     })
 
     it('pins the EIP-712 type hashes', async () => {
       const { namePolicy } = await load()
-      expect(await namePolicy.read.ACCEPT_NAME_TERMS_TYPEHASH()).toBe(
+      expect(await namePolicy.read.ACCEPT_GENERAL_TERMS_TYPEHASH()).toBe(
         keccak256(
           toHex(
-            'AcceptNameTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)',
-          ),
-        ),
-      )
-      expect(await namePolicy.read.ACCEPT_NAME_TERMS_FOR_CLAIM_TYPEHASH()).toBe(
-        keccak256(
-          toHex(
-            'AcceptNameTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)',
-          ),
-        ),
-      )
-      expect(await namePolicy.read.ACCEPT_COMMUNITY_NAME_TERMS_TYPEHASH()).toBe(
-        keccak256(
-          toHex(
-            'AcceptCommunityNameTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)',
+            'AcceptGeneralTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)',
           ),
         ),
       )
       expect(
-        await namePolicy.read.ACCEPT_COMMUNITY_NAME_TERMS_FOR_CLAIM_TYPEHASH(),
+        await namePolicy.read.ACCEPT_GENERAL_TERMS_FOR_CLAIM_TYPEHASH(),
       ).toBe(
         keccak256(
           toHex(
-            'AcceptCommunityNameTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)',
+            'AcceptGeneralTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)',
+          ),
+        ),
+      )
+      expect(await namePolicy.read.ACCEPT_COMMUNITY_TERMS_TYPEHASH()).toBe(
+        keccak256(
+          toHex(
+            'AcceptCommunityTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)',
+          ),
+        ),
+      )
+      expect(
+        await namePolicy.read.ACCEPT_COMMUNITY_TERMS_FOR_CLAIM_TYPEHASH(),
+      ).toBe(
+        keccak256(
+          toHex(
+            'AcceptCommunityTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)',
           ),
         ),
       )
@@ -321,7 +325,7 @@ describe('bona fide community names', () => {
       const { controller, sponsor, namePolicy, baseRegistrar } = await load()
       const reg = communityFor(bob.address)
       const commitment = await controller.read.makeCommitment([reg])
-      await namePolicy.write.commitUnderCommunityNameTermsWithSig(
+      await namePolicy.write.commitUnderCommunityTermsWithSig(
         [
           commitment,
           TERMS,
@@ -348,22 +352,16 @@ describe('bona fide community names', () => {
       const { controller, namePolicy, baseRegistrar } = await load()
       const reg = communityFor(alice.address)
       const commitment = await controller.read.makeCommitment([reg])
-      await namePolicy.write.commitUnderCommunityNameTerms(
-        [commitment, TERMS],
-        {
-          account: mallory,
-        },
-      )
+      await namePolicy.write.commitUnderCommunityTerms([commitment, TERMS], {
+        account: mallory,
+      })
       await expect(register(controller, reg)).toBeRevertedWithCustomErrorFrom(
         namePolicy,
         'TermsNotAccepted',
       )
-      await namePolicy.write.commitUnderCommunityNameTerms(
-        [commitment, TERMS],
-        {
-          account: alice,
-        },
-      )
+      await namePolicy.write.commitUnderCommunityTerms([commitment, TERMS], {
+        account: alice,
+      })
       await register(controller, reg)
       expect(await baseRegistrar.read.ownerOf([COMMUNITY_ID])).toBe(
         getAddress(alice.address),
@@ -374,13 +372,10 @@ describe('bona fide community names', () => {
       const { controller, namePolicy } = await load()
       const reg = communityFor(alice.address)
       const commitment = await controller.read.makeCommitment([reg])
-      await namePolicy.write.commitUnderCommunityNameTerms(
-        [commitment, TERMS],
-        {
-          account: alice,
-        },
-      )
-      await namePolicy.write.setCommunityNameTerms([NEW_TERMS_LINK], {
+      await namePolicy.write.commitUnderCommunityTerms([commitment, TERMS], {
+        account: alice,
+      })
+      await namePolicy.write.setCommunityTerms([NEW_TERMS_LINK], {
         account: owner,
       })
       await expect(register(controller, reg)).toBeRevertedWithCustomErrorFrom(
@@ -388,14 +383,11 @@ describe('bona fide community names', () => {
         'TermsNotAccepted',
       )
       await expect(
-        namePolicy.write.commitUnderCommunityNameTerms(
-          [commitment, TERMS],
-          {
-            account: alice,
-          },
-        ),
+        namePolicy.write.commitUnderCommunityTerms([commitment, TERMS], {
+          account: alice,
+        }),
       ).toBeRevertedWithCustomError('TermsMismatch')
-      await namePolicy.write.commitUnderCommunityNameTerms(
+      await namePolicy.write.commitUnderCommunityTerms(
         [commitment, NEW_TERMS],
         {
           account: alice,
@@ -404,22 +396,22 @@ describe('bona fide community names', () => {
       await register(controller, reg)
     })
 
-    it('a name listed between commit and register needs the community terms, and an unlisted one the name terms', async () => {
+    it('a name listed between commit and register needs the community terms, and an unlisted one the general terms', async () => {
       const { controller, namePolicy, baseRegistrar } = await load()
       const plain = registration('plainname', alice.address)
       const plainCommitment = await controller.read.makeCommitment([plain])
-      await namePolicy.write.commitUnderNameTerms(
-        [plainCommitment, NAME_TERMS],
+      await namePolicy.write.commitUnderGeneralTerms(
+        [plainCommitment, GENERAL_TERMS],
         { account: alice },
       )
-      await namePolicy.write.addBonaFideNames([['plainname']], {
+      await namePolicy.write.addCommunityNames([['plainname']], {
         account: guardian,
       })
       await expect(register(controller, plain)).toBeRevertedWithCustomErrorFrom(
         namePolicy,
         'TermsNotAccepted',
       )
-      await namePolicy.write.commitUnderCommunityNameTerms(
+      await namePolicy.write.commitUnderCommunityTerms(
         [plainCommitment, TERMS],
         { account: alice },
       )
@@ -430,24 +422,26 @@ describe('bona fide community names', () => {
 
       const reg = communityFor(alice.address)
       const commitment = await controller.read.makeCommitment([reg])
-      await namePolicy.write.commitUnderCommunityNameTerms(
-        [commitment, TERMS],
-        { account: alice },
-      )
-      await namePolicy.write.removeBonaFideNames([['community']], {
+      await namePolicy.write.commitUnderCommunityTerms([commitment, TERMS], {
+        account: alice,
+      })
+      await namePolicy.write.removeCommunityNames([['community']], {
         account: owner,
       })
       await expect(register(controller, reg)).toBeRevertedWithCustomErrorFrom(
         namePolicy,
         'TermsNotAccepted',
       )
-      await namePolicy.write.commitUnderNameTerms([commitment, NAME_TERMS], {
-        account: alice,
-      })
+      await namePolicy.write.commitUnderGeneralTerms(
+        [commitment, GENERAL_TERMS],
+        {
+          account: alice,
+        },
+      )
       const unlisted = await register(controller, reg)
       expect(
-        await acceptanceEvents(namePolicy, unlisted, 'NameTermsAccepted'),
-      ).toEqual([['community', getAddress(alice.address), NAME_TERMS]])
+        await acceptanceEvents(namePolicy, unlisted, 'GeneralTermsAccepted'),
+      ).toEqual([['community', getAddress(alice.address), GENERAL_TERMS]])
       expect(await baseRegistrar.read.ownerOf([COMMUNITY_ID])).toBe(
         getAddress(alice.address),
       )
@@ -482,7 +476,7 @@ describe('bona fide community names', () => {
       const reg = registration('community', bob.address, {
         duration: 3n * YEAR,
       })
-      await namePolicy.write.commitUnderCommunityNameTerms(
+      await namePolicy.write.commitUnderCommunityTerms(
         [await controller.read.makeCommitment([reg]), TERMS],
         { account: bob },
       )
@@ -570,7 +564,7 @@ describe('bona fide community names', () => {
       const f = await load()
       await acceptAndRegister(f)
       const offer = await offerToBob(f)
-      await f.namePolicy.write.acceptCommunityNameTermsForClaim(
+      await f.namePolicy.write.acceptCommunityTermsForClaim(
         [COMMUNITY_ID, alice.address, offer, TERMS],
         {
           account: bob,
@@ -597,7 +591,7 @@ describe('bona fide community names', () => {
         bobClient,
         'SimplexNamePolicy',
         f.namePolicy.address,
-        'AcceptCommunityNameTermsForClaim',
+        'AcceptCommunityTermsForClaim',
         {
           tokenId: COMMUNITY_ID,
           from: alice.address,
@@ -607,7 +601,7 @@ describe('bona fide community names', () => {
           deadline: FAR_FUTURE,
         },
       )
-      await f.namePolicy.write.acceptCommunityNameTermsForClaimWithSig(
+      await f.namePolicy.write.acceptCommunityTermsForClaimWithSig(
         [
           COMMUNITY_ID,
           alice.address,
@@ -659,7 +653,7 @@ describe('bona fide community names', () => {
       const f = await load()
       await acceptAndRegister(f)
       const first = await offerToBob(f)
-      await f.namePolicy.write.acceptCommunityNameTermsForClaim(
+      await f.namePolicy.write.acceptCommunityTermsForClaim(
         [COMMUNITY_ID, alice.address, first, TERMS],
         {
           account: bob,
@@ -677,7 +671,7 @@ describe('bona fide community names', () => {
         f.namePolicy,
         'TermsNotAccepted',
       )
-      await f.namePolicy.write.acceptCommunityNameTermsForClaim(
+      await f.namePolicy.write.acceptCommunityTermsForClaim(
         [COMMUNITY_ID, alice.address, second, TERMS],
         {
           account: bob,
@@ -690,7 +684,7 @@ describe('bona fide community names', () => {
       const f = await load()
       await acceptAndRegister(f)
       const offer = await offerToBob(f)
-      await f.namePolicy.write.acceptCommunityNameTermsForClaim(
+      await f.namePolicy.write.acceptCommunityTermsForClaim(
         [COMMUNITY_ID, alice.address, offer, TERMS],
         {
           account: bob,
@@ -700,7 +694,7 @@ describe('bona fide community names', () => {
         MIN_REGISTRATION + GRACE_PERIOD + 1n,
       )
       const reg = communityFor(mallory.address)
-      await f.namePolicy.write.commitUnderCommunityNameTerms(
+      await f.namePolicy.write.commitUnderCommunityTerms(
         [await f.controller.read.makeCommitment([reg]), TERMS],
         { account: mallory },
       )
@@ -723,7 +717,7 @@ describe('bona fide community names', () => {
         f.namePolicy,
         'TermsNotAccepted',
       )
-      await f.namePolicy.write.acceptCommunityNameTermsForClaim(
+      await f.namePolicy.write.acceptCommunityTermsForClaim(
         [COMMUNITY_ID, mallory.address, offer, TERMS],
         {
           account: bob,
@@ -736,13 +730,13 @@ describe('bona fide community names', () => {
       const f = await load()
       await acceptAndRegister(f)
       const offer = await offerToBob(f)
-      await f.namePolicy.write.acceptCommunityNameTermsForClaim(
+      await f.namePolicy.write.acceptCommunityTermsForClaim(
         [COMMUNITY_ID, alice.address, offer, TERMS],
         {
           account: bob,
         },
       )
-      await f.namePolicy.write.setCommunityNameTerms([NEW_TERMS_LINK], {
+      await f.namePolicy.write.setCommunityTerms([NEW_TERMS_LINK], {
         account: owner,
       })
       const take = () =>
@@ -757,12 +751,12 @@ describe('bona fide community names', () => {
         'TermsNotAccepted',
       )
       await expect(
-        f.namePolicy.write.acceptCommunityNameTermsForClaim(
+        f.namePolicy.write.acceptCommunityTermsForClaim(
           [COMMUNITY_ID, alice.address, offer, TERMS],
           { account: bob },
         ),
       ).toBeRevertedWithCustomError('TermsMismatch')
-      await f.namePolicy.write.acceptCommunityNameTermsForClaim(
+      await f.namePolicy.write.acceptCommunityTermsForClaim(
         [COMMUNITY_ID, alice.address, offer, NEW_TERMS],
         {
           account: bob,
@@ -784,7 +778,7 @@ describe('bona fide community names', () => {
       const reg = registration('community', alice.address, {
         resolver: f.resolver.address,
       })
-      await f.namePolicy.write.commitUnderCommunityNameTerms(
+      await f.namePolicy.write.commitUnderCommunityTerms(
         [await f.controller.read.makeCommitment([reg]), TERMS],
         { account: alice },
       )
@@ -793,7 +787,7 @@ describe('bona fide community names', () => {
         getAddress(alice.address),
       )
 
-      await f.namePolicy.write.addBonaFideNames([['reservedone']], {
+      await f.namePolicy.write.addCommunityNames([['reservedone']], {
         account: guardian,
       })
       await f.namePolicy.write.addReservedNames([['reservedone'], TRADEMARK], {
@@ -810,7 +804,7 @@ describe('bona fide community names', () => {
       ).toBe(getAddress(bob.address))
     })
 
-    it('an unlisted name transfers under the name terms, and any name without acceptance once the registrar hook is unset', async () => {
+    it('an unlisted name transfers under the general terms, and any name without acceptance once the registrar hook is unset', async () => {
       const f = await load()
       await acceptAndRegister(f, GENERAL)
       const offer = await offerToBob(f, GENERAL.id)
@@ -823,13 +817,17 @@ describe('bona fide community names', () => {
         f.namePolicy,
         'TermsNotAccepted',
       )
-      await f.namePolicy.write.acceptNameTermsForClaim(
-        [GENERAL.id, alice.address, offer, NAME_TERMS],
+      await f.namePolicy.write.acceptGeneralTermsForClaim(
+        [GENERAL.id, alice.address, offer, GENERAL_TERMS],
         { account: bob },
       )
       expect(
-        await acceptanceEvents(f.namePolicy, await take(), 'NameTermsAccepted'),
-      ).toEqual([['plainname', getAddress(bob.address), NAME_TERMS]])
+        await acceptanceEvents(
+          f.namePolicy,
+          await take(),
+          'GeneralTermsAccepted',
+        ),
+      ).toEqual([['plainname', getAddress(bob.address), GENERAL_TERMS]])
 
       await acceptAndRegister(f)
       await offerToBob(f)
@@ -877,7 +875,7 @@ describe('terms of each kind', () => {
         'SimplexNamePolicy',
         proxy.address,
       )
-      await unset.write.addBonaFideNames([['community']], {
+      await unset.write.addCommunityNames([['community']], {
         account: guardian,
       })
       await callPolicy(unset, other.setTerms, [other.link], owner)
@@ -1142,12 +1140,15 @@ describe('terms of each kind', () => {
       const reg = registration('plainname', alice.address)
       const commitment = await controller.read.makeCommitment([reg])
       await controller.write.commit([commitment], { account: mallory })
-      await namePolicy.write.commitUnderNameTerms([commitment, NAME_TERMS], {
-        account: alice,
-      })
+      await namePolicy.write.commitUnderGeneralTerms(
+        [commitment, GENERAL_TERMS],
+        {
+          account: alice,
+        },
+      )
       expect(
         await namePolicy.read.acceptedTerms([commitment, alice.address]),
-      ).toBe(NAME_TERMS)
+      ).toBe(GENERAL_TERMS)
       await register(controller, reg)
       expect(await baseRegistrar.read.ownerOf([GENERAL.id])).toBe(
         getAddress(alice.address),
@@ -1165,14 +1166,14 @@ describe('terms of each kind', () => {
         GENERAL,
       )
       const relay = (account: any) =>
-        namePolicy.write.commitUnderNameTermsWithSig(
-          [commitment, NAME_TERMS, bob.address, 0n, FAR_FUTURE, sig],
+        namePolicy.write.commitUnderGeneralTermsWithSig(
+          [commitment, GENERAL_TERMS, bob.address, 0n, FAR_FUTURE, sig],
           { account },
         )
       await relay(mallory)
       expect(
         await namePolicy.read.acceptedTerms([commitment, bob.address]),
-      ).toBe(NAME_TERMS)
+      ).toBe(GENERAL_TERMS)
       expect(
         await namePolicy.read.acceptedTerms([commitment, mallory.address]),
       ).toBe(zeroHash)
@@ -1197,17 +1198,17 @@ describe('terms of each kind', () => {
       const older = await signAcceptance(namePolicy, bobClient, community)
       const newer = await signAcceptance(namePolicy, bobClient, plain, GENERAL)
       await expect(
-        namePolicy.write.commitUnderCommunityNameTermsWithSig(
-          [plain, NAME_TERMS, bob.address, 0n, FAR_FUTURE, newer],
+        namePolicy.write.commitUnderCommunityTermsWithSig(
+          [plain, GENERAL_TERMS, bob.address, 0n, FAR_FUTURE, newer],
           { account: registrar },
         ),
       ).toBeRevertedWithCustomError('InvalidSignature')
-      await namePolicy.write.commitUnderNameTermsWithSig(
-        [plain, NAME_TERMS, bob.address, 0n, FAR_FUTURE, newer],
+      await namePolicy.write.commitUnderGeneralTermsWithSig(
+        [plain, GENERAL_TERMS, bob.address, 0n, FAR_FUTURE, newer],
         { account: registrar },
       )
       await expect(
-        namePolicy.write.commitUnderCommunityNameTermsWithSig(
+        namePolicy.write.commitUnderCommunityTermsWithSig(
           [community, TERMS, bob.address, 0n, FAR_FUTURE, older],
           { account: registrar },
         ),

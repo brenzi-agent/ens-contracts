@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
-  commitUnderNameTerms,
+  commitUnderGeneralTerms,
   deployNamesV2,
   MIN_REGISTRATION,
   registerWithCredit,
@@ -39,7 +39,7 @@ const load = () => connection.networkHelpers.loadFixture(fixture)
 
 async function payableRegister(controller: any, label: string) {
   const reg = registration(label, alice.address)
-  await commitUnderNameTerms(connection, controller, reg, { account: alice })
+  await commitUnderGeneralTerms(connection, controller, reg, { account: alice })
   return controller.write.register([reg], {
     account: alice,
     value: 2n * YEAR_PRICE_USD,
@@ -48,7 +48,7 @@ async function payableRegister(controller: any, label: string) {
 
 async function creditedRegister(controller: any, label: string) {
   const reg = registration(label, alice.address)
-  await commitUnderNameTerms(connection, controller, reg, { account: alice })
+  await commitUnderGeneralTerms(connection, controller, reg, { account: alice })
   const sponsor = await sponsorOf(connection, controller)
   return registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
@@ -62,7 +62,7 @@ describe('public sales switch', () => {
   it('the payable path reverts while closed and succeeds once open', async () => {
     const { controller } = await load()
     const reg = registration('closednow', alice.address)
-    await commitUnderNameTerms(connection, controller, reg, { account: alice })
+    await commitUnderGeneralTerms(connection, controller, reg, { account: alice })
     // the matcher needs the raw write promise, so this is not wrapped in a helper
     await expect(
       controller.write.register([reg], {

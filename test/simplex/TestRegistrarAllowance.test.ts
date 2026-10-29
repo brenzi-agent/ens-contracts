@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
-  commitUnderNameTerms,
+  commitUnderGeneralTerms,
   deployNamesV2,
   registerWithCredit,
   registration,
@@ -33,7 +33,7 @@ async function fixture() {
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
 async function sponsoredRegister(controller: any, reg: any) {
-  await commitUnderNameTerms(connection, controller, reg, {
+  await commitUnderGeneralTerms(connection, controller, reg, {
     account: reg.owner,
   })
   const sponsor = await sponsorOf(connection, controller)
@@ -364,7 +364,7 @@ describe('registrar allowance', () => {
     await controller.write.setPublicSalesOpen([true], { account: owner })
 
     const reg = registration('payforit', alice.address)
-    await commitUnderNameTerms(connection, controller, reg, { account: alice })
+    await commitUnderGeneralTerms(connection, controller, reg, { account: alice })
     const before = await publicClient.getBalance({ address: alice.address })
     const hash = await controller.write.register([reg], {
       account: alice,

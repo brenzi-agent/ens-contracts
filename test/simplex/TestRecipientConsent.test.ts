@@ -12,16 +12,16 @@ import { describe, expect, it } from 'vitest'
 
 import { DAY } from '../fixtures/constants.js'
 import {
-  acceptNameTermsForClaim,
+  acceptGeneralTermsForClaim,
   AMPLE_ALLOWANCE,
-  commitUnderNameTerms,
+  commitUnderGeneralTerms,
   deployNamesV2,
   FAR_FUTURE,
   MIN_REGISTRATION,
   node,
   registerWithCredit,
   registration,
-  signNameTermsAcceptance,
+  signGeneralTermsAcceptance,
   signRegistration,
   sponsorOf,
   TLD_NODE,
@@ -65,7 +65,7 @@ async function fixture() {
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
 async function commit(controller: any, reg: any) {
-  await commitUnderNameTerms(connection, controller, reg, {
+  await commitUnderGeneralTerms(connection, controller, reg, {
     account: reg.owner,
   })
 }
@@ -261,8 +261,8 @@ describe('recipient consent', () => {
         [bob.address],
       )
       const reg = registration('walletname', wallet.address)
-      await namePolicy.write.commitUnderNameTermsWithSig(
-        await signNameTermsAcceptance(connection, controller, reg, {
+      await namePolicy.write.commitUnderGeneralTermsWithSig(
+        await signGeneralTermsAcceptance(connection, controller, reg, {
           signer: bobClient,
         }),
         { account: registrar },
@@ -351,7 +351,7 @@ describe('recipient consent', () => {
       await baseRegistrar.write.approve([bob.address, ALICE_ID], {
         account: alice,
       })
-      await acceptNameTermsForClaim(
+      await acceptGeneralTermsForClaim(
         connection,
         baseRegistrar,
         ALICE_ID,
@@ -374,7 +374,7 @@ describe('recipient consent', () => {
       await baseRegistrar.write.approve([carol.address, ALICE_ID], {
         account: bob,
       })
-      await acceptNameTermsForClaim(
+      await acceptGeneralTermsForClaim(
         connection,
         baseRegistrar,
         ALICE_ID,
@@ -411,7 +411,7 @@ describe('recipient consent', () => {
         account: alice,
       })
       // carol, an operator, takes it for herself
-      await acceptNameTermsForClaim(
+      await acceptGeneralTermsForClaim(
         connection,
         baseRegistrar,
         ALICE_ID,

@@ -129,14 +129,14 @@ Same slot count, same slot size. `__gap` is untouched.
 
 ## `SimplexNamePolicy`
 
-The name policy (reserved names, bona fide names, terms links, acceptances) sits
+The name policy (reserved names, community names, terms links, acceptances) sits
 behind `SimplexNamePolicyProxy` (ERC-1967, UUPS). `_authorizeUpgrade` requires
 the controller's `owner()`, reverts `Frozen` once the controller is frozen, and
 reverts `ImplementationMismatch` unless the new implementation's immutable
 `controller()` and `registrar()` equal the current ones. Its own variables are
-`_names` (each name's bona fide flag and reservation reason, in one slot),
-`communityNameTermsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`,
-`communityNameTermsLink`, `nameTermsLink`, `nameTermsHash`, then
+`_names` (each name's community flag and reservation reason, in one slot),
+`communityTermsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`,
+`communityTermsLink`, `generalTermsLink`, `generalTermsHash`, then
 `uint256[42] __gap`; the invariants above apply to it unchanged.
 
 The policy compiles in the controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` and
