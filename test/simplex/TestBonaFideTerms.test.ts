@@ -458,16 +458,12 @@ describe('bona fide community names', () => {
     })
   })
 
-  describe('term', () => {
+  describe('duration', () => {
     it('the sponsor registers a listed name for three years, not a second more', async () => {
       const { controller, sponsor, namePolicy, baseRegistrar } = await load()
       const tooLong = registration('community', bob.address, {
         duration: 3n * YEAR + 1n,
       })
-      await controller.write.commit(
-        [await controller.read.makeCommitment([tooLong])],
-        { account: registrar },
-      )
       await expect(
         sponsor.write.registerWithCredit(
           await signRegistration(connection, sponsor, tooLong),

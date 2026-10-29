@@ -609,8 +609,6 @@ contract SimplexController is
         _renewCore(label, labelhash, duration, 0, referrer, _sponsoredHorizon(labelhash));
     }
 
-    /// @dev How far out the sponsor may register or renew a name: a bona fide
-    ///      name no further than a paid registration.
     function _sponsoredHorizon(bytes32 labelhash) private view returns (uint256) {
         return INamePolicy(namePolicy).bonaFideNames(labelhash)
             ? MAX_REGISTRATION_DURATION
