@@ -142,7 +142,7 @@ already has terms is upgraded to an implementation with `termsText` by
 with the text whose keccak256 is its `termsHash`, so its text is set in the same
 transaction as the upgrade and its acceptances stay valid.
 
-The policy compiles in the controller's `MIN_REGISTRATION` and
+The policy compiles in the controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` and
 `MAX_SPONSORED_REGISTRATION`, and reads the controller's `ens` and `tldNode` once,
 in its constructor. A controller upgrade that changed any of them needs a policy
 upgrade as well.

@@ -6,7 +6,7 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {BaseRegistrarImplementation} from "../ethregistrar/BaseRegistrarImplementation.sol";
 import {ENS} from "../registry/ENS.sol";
 import {INamePolicy} from "./INamePolicy.sol";
-import {IClearableResolver, MAX_SPONSORED_REGISTRATION, MIN_REGISTRATION, SimplexController} from "./SimplexController.sol";
+import {IClearableResolver, MAX_REGISTRATION, MAX_SPONSORED_REGISTRATION, MIN_REGISTRATION, SimplexController} from "./SimplexController.sol";
 
 contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     SimplexController public immutable controller;
@@ -166,7 +166,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
             revert NameNotReserved(label);
         if (duration < MIN_REGISTRATION)
             revert DurationTooShort(duration);
-        if (duration > MAX_SPONSORED_REGISTRATION)
+        if (duration > (_names[labelhash].bonaFide ? MAX_REGISTRATION : MAX_SPONSORED_REGISTRATION))
             revert DurationTooLong(duration);
 
         delete _names[labelhash].reserved;
