@@ -497,7 +497,7 @@ describe('bona fide community names', () => {
       ).toBeRevertedWithCustomErrorFrom(f.controller, 'DurationTooLong')
     })
 
-    it('registerReserved gives a listed name three years, not a second more', async () => {
+    it('registerReserved registers a listed name for three years, not a second more', async () => {
       const { namePolicy } = await load()
       await namePolicy.write.addReservedNames([['community'], TRADEMARK], {
         account: owner,
