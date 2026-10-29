@@ -266,13 +266,13 @@ export const eip712Types = {
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
-  AcceptBonaFideTerms: [
+  AcceptCommunityTerms: [
     { name: 'commitment', type: 'bytes32' },
     { name: 'termsHash', type: 'bytes32' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
-  AcceptBonaFideTermsForClaim: [
+  AcceptCommunityTermsForClaim: [
     { name: 'tokenId', type: 'uint256' },
     { name: 'from', type: 'address' },
     { name: 'offer', type: 'uint256' },

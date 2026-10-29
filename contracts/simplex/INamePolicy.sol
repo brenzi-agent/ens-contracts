@@ -11,7 +11,7 @@ interface INamePolicy {
 
     function isReserved(bytes32 labelhash) external view returns (bool);
 
-    function bonaFideNames(bytes32 labelhash) external view returns (bool);
+    function communityNames(bytes32 labelhash) external view returns (bool);
 
     function consumeTransfer(
         uint256 tokenId,

@@ -21,7 +21,7 @@ import {
 import { DAY } from '../fixtures/constants.js'
 
 const GRACE_PERIOD = 90n * DAY
-const TERMS_TEXT = 'bona fide community terms v1'
+const TERMS_TEXT = 'community terms v1'
 const TERMS = keccak256(toHex(TERMS_TEXT))
 const KEY = 'simplex.contact'
 
@@ -88,7 +88,7 @@ describe('name policy', () => {
     it('removing a name from one list leaves it on the other', async () => {
       const { namePolicy } = await load()
       const id = labelhash('bothlists')
-      await namePolicy.write.addBonaFideNames([['bothlists']], {
+      await namePolicy.write.addCommunityNames([['bothlists']], {
         account: owner,
       })
       await namePolicy.write.addReservedNames(
@@ -98,22 +98,22 @@ describe('name policy', () => {
       await namePolicy.write.removeReservedNames([['bothlists']], {
         account: owner,
       })
-      expect(await namePolicy.read.bonaFideNames([id])).toBe(true)
+      expect(await namePolicy.read.communityNames([id])).toBe(true)
 
       await namePolicy.write.addReservedNames(
         [['bothlists'], Reason.Trademark],
         { account: owner },
       )
-      await namePolicy.write.removeBonaFideNames([['bothlists']], {
+      await namePolicy.write.removeCommunityNames([['bothlists']], {
         account: owner,
       })
       expect(await namePolicy.read.reservedNames([id])).toBe(Reason.Trademark)
     })
 
-    it('registerReserved releases the reservation and keeps the bona fide listing', async () => {
+    it('registerReserved releases the reservation and keeps the community listing', async () => {
       const { namePolicy } = await load()
       const id = labelhash('bothlists')
-      await namePolicy.write.addBonaFideNames([['bothlists']], {
+      await namePolicy.write.addCommunityNames([['bothlists']], {
         account: owner,
       })
       await namePolicy.write.addReservedNames(
@@ -125,7 +125,7 @@ describe('name policy', () => {
         { account: owner },
       )
       expect(await namePolicy.read.reservedNames([id])).toBe(Reason.None)
-      expect(await namePolicy.read.bonaFideNames([id])).toBe(true)
+      expect(await namePolicy.read.communityNames([id])).toBe(true)
     })
   })
 
@@ -170,7 +170,7 @@ describe('name policy', () => {
       }
     })
 
-    it('an upgrade preserves the reserved and bona fide lists, the terms and the acceptances', async () => {
+    it('an upgrade preserves the reserved and community lists, the terms and the acceptances', async () => {
       const { controller, baseRegistrar, namePolicy } = await load()
       await namePolicy.write.addReservedNames(
         [['reservedname'], Reason.Trademark],
@@ -179,13 +179,13 @@ describe('name policy', () => {
       await namePolicy.write.setTerms([TERMS_TEXT], {
         account: owner,
       })
-      await namePolicy.write.addBonaFideNames([['community']], {
+      await namePolicy.write.addCommunityNames([['community']], {
         account: owner,
       })
       const commitment = await controller.read.makeCommitment([
         registration('community', alice.address),
       ])
-      await namePolicy.write.commitUnderBonaFideCommunityTerms(
+      await namePolicy.write.commitUnderCommunityTerms(
         [commitment, TERMS],
         { account: alice },
       )
@@ -200,7 +200,7 @@ describe('name policy', () => {
         await namePolicy.read.reservedNames([labelhash('reservedname')]),
       ).toBe(Reason.Trademark)
       expect(
-        await namePolicy.read.bonaFideNames([labelhash('community')]),
+        await namePolicy.read.communityNames([labelhash('community')]),
       ).toBe(true)
       expect(await namePolicy.read.termsHash()).toBe(TERMS)
       expect(await namePolicy.read.termsText()).toBe(TERMS_TEXT)

@@ -28,7 +28,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     }
 
     struct NameEntry {
-        bool bonaFide;
+        bool community;
         Reason reserved;
     }
 
@@ -49,21 +49,21 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     bytes32 private constant _EIP712_VERSION = keccak256("1");
     bytes32 public constant ACCEPT_TYPEHASH =
         keccak256(
-            "AcceptBonaFideTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)"
+            "AcceptCommunityTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)"
         );
     bytes32 public constant ACCEPT_FOR_CLAIM_TYPEHASH =
         keccak256(
-            "AcceptBonaFideTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)"
+            "AcceptCommunityTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)"
         );
 
     event ReservedNameAdded(string name, Reason reason);
     event ReservedNameReasonChanged(string name, Reason reason);
     event ReservedNameRemoved(string name);
-    event BonaFideNameAdded(string name);
-    event BonaFideNameSkipped(string name);
-    event BonaFideNameRemoved(string name);
+    event CommunityNameAdded(string name);
+    event CommunityNameSkipped(string name);
+    event CommunityNameRemoved(string name);
     event TermsSet(bytes32 termsHash);
-    event BonaFideTermsAccepted(
+    event CommunityTermsAccepted(
         string name,
         address indexed holder,
         bytes32 termsHash
@@ -166,7 +166,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
             revert NameNotReserved(label);
         if (duration < MIN_REGISTRATION)
             revert DurationTooShort(duration);
-        if (duration > (_names[labelhash].bonaFide ? MAX_REGISTRATION : MAX_SPONSORED_REGISTRATION))
+        if (duration > (_names[labelhash].community ? MAX_REGISTRATION : MAX_SPONSORED_REGISTRATION))
             revert DurationTooLong(duration);
 
         delete _names[labelhash].reserved;
@@ -190,28 +190,28 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         return _names[labelhash].reserved != Reason.None;
     }
 
-    function bonaFideNames(bytes32 labelhash) external view returns (bool) {
-        return _names[labelhash].bonaFide;
+    function communityNames(bytes32 labelhash) external view returns (bool) {
+        return _names[labelhash].community;
     }
 
-    function addBonaFideNames(
+    function addCommunityNames(
         string[] calldata names
     ) external onlyOwnerOrBeneficiary {
         for (uint256 i = 0; i < names.length; ++i) {
             bytes32 labelhash = keccak256(bytes(names[i]));
             if (!registrar.available(uint256(labelhash))) {
-                emit BonaFideNameSkipped(names[i]);
+                emit CommunityNameSkipped(names[i]);
                 continue;
             }
-            _names[labelhash].bonaFide = true;
-            emit BonaFideNameAdded(names[i]);
+            _names[labelhash].community = true;
+            emit CommunityNameAdded(names[i]);
         }
     }
 
-    function removeBonaFideNames(string[] calldata names) external onlyOwner {
+    function removeCommunityNames(string[] calldata names) external onlyOwner {
         for (uint256 i = 0; i < names.length; ++i) {
-            delete _names[keccak256(bytes(names[i]))].bonaFide;
-            emit BonaFideNameRemoved(names[i]);
+            delete _names[keccak256(bytes(names[i]))].community;
+            emit CommunityNameRemoved(names[i]);
         }
     }
 
@@ -224,14 +224,14 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         emit TermsSet(termsHash);
     }
 
-    function commitUnderBonaFideCommunityTerms(
+    function commitUnderCommunityTerms(
         bytes32 commitment,
         bytes32 acceptedTermsHash
     ) external {
         _acceptForCommitment(commitment, acceptedTermsHash, msg.sender);
     }
 
-    function commitUnderBonaFideCommunityTermsWithSig(
+    function commitUnderCommunityTermsWithSig(
         bytes32 commitment,
         bytes32 acceptedTermsHash,
         address acceptor,
@@ -257,7 +257,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         _acceptForCommitment(commitment, acceptedTermsHash, acceptor);
     }
 
-    function acceptBonaFideCommunityTermsForClaim(
+    function acceptCommunityTermsForClaim(
         uint256 tokenId,
         address from,
         uint256 offer,
@@ -266,7 +266,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         _acceptForClaim(tokenId, from, offer, acceptedTermsHash, msg.sender);
     }
 
-    function acceptBonaFideCommunityTermsForClaimWithSig(
+    function acceptCommunityTermsForClaimWithSig(
         uint256 tokenId,
         address from,
         uint256 offer,
@@ -306,11 +306,11 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         if (address(this) == _self) revert NotProxy();
         NameEntry memory entry = _names[labelhash];
         if (entry.reserved != Reason.None) revert NameReserved(label);
-        if (!entry.bonaFide) return;
+        if (!entry.community) return;
         bytes32 accepted = acceptedTerms[commitment][owner];
         if (!_isCurrentTerms(accepted)) revert TermsNotAccepted(label);
         delete acceptedTerms[commitment][owner];
-        emit BonaFideTermsAccepted(label, owner, accepted);
+        emit CommunityTermsAccepted(label, owner, accepted);
     }
 
     function consumeTransfer(
@@ -322,11 +322,11 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     ) external {
         if (msg.sender != address(registrar)) revert NotRegistrar();
         if (address(this) == _self) revert NotProxy();
-        if (!_names[bytes32(tokenId)].bonaFide) return;
+        if (!_names[bytes32(tokenId)].community) return;
         bytes32 accepted = acceptedClaimTerms[tokenId][from][to][offer];
         if (!_isCurrentTerms(accepted)) revert TermsNotAccepted(label);
         delete acceptedClaimTerms[tokenId][from][to][offer];
-        emit BonaFideTermsAccepted(label, to, accepted);
+        emit CommunityTermsAccepted(label, to, accepted);
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
