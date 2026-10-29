@@ -300,29 +300,6 @@ describe('bona fide community names', () => {
   })
 
   describe('registration', () => {
-    it('a listed name cannot be registered without accepting the terms, on either path', async () => {
-      const { controller, sponsor, namePolicy } = await load()
-      const reg = communityFor(alice.address)
-      await controller.write.commit(
-        [await controller.read.makeCommitment([reg])],
-        {
-          account: alice,
-        },
-      )
-      await expect(register(controller, reg)).toBeRevertedWithCustomErrorFrom(
-        namePolicy,
-        'TermsNotAccepted',
-      )
-      await expect(
-        sponsor.write.registerWithCredit(
-          await signRegistration(connection, sponsor, reg),
-          {
-            account: registrar,
-          },
-        ),
-      ).toBeRevertedWithCustomErrorFrom(namePolicy, 'TermsNotAccepted')
-    })
-
     it('accepting at commit registers it, and the event records the name, holder and terms', async () => {
       const f = await load()
       const hash = await acceptAndRegister(f)
@@ -889,7 +866,43 @@ describe('terms of each kind', () => {
     const other = k === GENERAL ? COMMUNITY : GENERAL
     const reg = registration(k.label, alice.address)
 
+    const policyWithoutTheseTerms = async ({
+      namePolicyImplementation,
+    }: Fixture) => {
+      const proxy = await connection.viem.deployContract(
+        'SimplexNamePolicyProxy',
+        [namePolicyImplementation.address, '0x'],
+      )
+      const unset = await connection.viem.getContractAt(
+        'SimplexNamePolicy',
+        proxy.address,
+      )
+      await unset.write.addBonaFideNames([['community']], {
+        account: guardian,
+      })
+      await callPolicy(unset, other.setTerms, [other.link], owner)
+      return unset
+    }
+
     describe(k.title, () => {
+      it('a name cannot be registered without accepting its terms, on either path', async () => {
+        const { controller, sponsor, namePolicy } = await load()
+        await controller.write.commit(
+          [await controller.read.makeCommitment([reg])],
+          { account: alice },
+        )
+        await expect(register(controller, reg)).toBeRevertedWithCustomErrorFrom(
+          namePolicy,
+          'TermsNotAccepted',
+        )
+        await expect(
+          sponsor.write.registerWithCredit(
+            await signRegistration(connection, sponsor, reg),
+            { account: registrar },
+          ),
+        ).toBeRevertedWithCustomErrorFrom(namePolicy, 'TermsNotAccepted')
+      })
+
       it('only the owner sets the link, never empty, and it is stored with its hash', async () => {
         const { namePolicy } = await load()
         const link = termsLink('next.md', '4')
@@ -908,22 +921,40 @@ describe('terms of each kind', () => {
       })
 
       it('a new link leaves the other terms and their acceptances valid', async () => {
-        const { controller, namePolicy } = await load()
+        const f = await load()
         const otherReg = registration(other.label, alice.address)
         await callPolicy(
-          namePolicy,
+          f.namePolicy,
           other.commit,
-          [await controller.read.makeCommitment([otherReg]), other.hash],
+          [await f.controller.read.makeCommitment([otherReg]), other.hash],
           alice,
         )
         await callPolicy(
-          namePolicy,
+          f.namePolicy,
           k.setTerms,
           [termsLink('next.md', '4')],
           owner,
         )
-        expect(await namePolicy.read[other.termsHash]()).toBe(other.hash)
-        await register(controller, otherReg)
+        expect(await f.namePolicy.read[other.termsHash]()).toBe(other.hash)
+        await register(f.controller, otherReg)
+
+        const offer = await offerToBob(f, other.id)
+        await callPolicy(
+          f.namePolicy,
+          other.acceptForClaim,
+          [other.id, alice.address, offer, other.hash],
+          bob,
+        )
+        await callPolicy(
+          f.namePolicy,
+          k.setTerms,
+          [termsLink('next.md', '5')],
+          owner,
+        )
+        await f.baseRegistrar.write.transferFrom(
+          [alice.address, bob.address, other.id],
+          { account: bob },
+        )
       })
 
       it('an acceptance reverts for the other terms and for none', async () => {
@@ -1062,33 +1093,45 @@ describe('terms of each kind', () => {
       })
 
       it('nothing is accepted or registered before the link is set', async () => {
-        const { controller, namePolicyImplementation } = await load()
-        const proxy = await connection.viem.deployContract(
-          'SimplexNamePolicyProxy',
-          [namePolicyImplementation.address, '0x'],
-        )
-        const unset = await connection.viem.getContractAt(
-          'SimplexNamePolicy',
-          proxy.address,
-        )
-        await unset.write.addBonaFideNames([['community']], {
-          account: guardian,
-        })
-        await callPolicy(unset, other.setTerms, [other.link], owner)
-        await controller.write.setNamePolicy([unset.address], {
+        const f = await load()
+        const unset = await policyWithoutTheseTerms(f)
+        await f.controller.write.setNamePolicy([unset.address], {
           account: owner,
         })
-        const commitment = await controller.read.makeCommitment([reg])
+        const commitment = await f.controller.read.makeCommitment([reg])
         for (const hash of [zeroHash, k.hash]) {
           await expect(
             callPolicy(unset, k.commit, [commitment, hash], alice),
           ).toBeRevertedWithCustomError('TermsMismatch')
         }
-        await controller.write.commit([commitment], { account: alice })
-        await expect(register(controller, reg)).toBeRevertedWithCustomErrorFrom(
-          unset,
-          'TermsNotAccepted',
-        )
+        await f.controller.write.commit([commitment], { account: alice })
+        await expect(
+          register(f.controller, reg),
+        ).toBeRevertedWithCustomErrorFrom(unset, 'TermsNotAccepted')
+      })
+
+      it('nothing is claimed before the link is set', async () => {
+        const f = await load()
+        await acceptAndRegister(f, k)
+        const offer = await offerToBob(f, k.id)
+        const unset = await policyWithoutTheseTerms(f)
+        await expect(
+          callPolicy(
+            unset,
+            k.acceptForClaim,
+            [k.id, alice.address, offer, k.hash],
+            bob,
+          ),
+        ).toBeRevertedWithCustomError('TermsMismatch')
+        await f.baseRegistrar.write.setNamePolicy([unset.address], {
+          account: owner,
+        })
+        await expect(
+          f.baseRegistrar.write.transferFrom(
+            [alice.address, bob.address, k.id],
+            { account: bob },
+          ),
+        ).toBeRevertedWithCustomErrorFrom(unset, 'TermsNotAccepted')
       })
     })
   }
@@ -1155,7 +1198,7 @@ describe('terms of each kind', () => {
       const newer = await signAcceptance(namePolicy, bobClient, plain, GENERAL)
       await expect(
         namePolicy.write.commitUnderCommunityNameTermsWithSig(
-          [plain, TERMS, bob.address, 0n, FAR_FUTURE, newer],
+          [plain, NAME_TERMS, bob.address, 0n, FAR_FUTURE, newer],
           { account: registrar },
         ),
       ).toBeRevertedWithCustomError('InvalidSignature')

@@ -403,7 +403,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         if (entry.reserved != Reason.None) revert NameReserved(label);
         bytes32 accepted = acceptedTerms[commitment][owner];
         delete acceptedTerms[commitment][owner];
-        _checkAcceptance(entry.bonaFide, accepted, label, owner);
+        _confirmAcceptance(entry.bonaFide, accepted, label, owner);
     }
 
     function consumeTransfer(
@@ -417,7 +417,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         if (address(this) == _self) revert NotProxy();
         bytes32 accepted = acceptedClaimTerms[tokenId][from][to][offer];
         delete acceptedClaimTerms[tokenId][from][to][offer];
-        _checkAcceptance(_names[bytes32(tokenId)].bonaFide, accepted, label, to);
+        _confirmAcceptance(_names[bytes32(tokenId)].bonaFide, accepted, label, to);
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
@@ -467,7 +467,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         acceptedClaimTerms[tokenId][from][recipient][offer] = acceptedTermsHash;
     }
 
-    function _checkAcceptance(
+    function _confirmAcceptance(
         bool bonaFide,
         bytes32 accepted,
         string calldata label,
