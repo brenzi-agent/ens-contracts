@@ -25,6 +25,7 @@ interface IClearableResolver {
 }
 
 uint256 constant MIN_REGISTRATION = 730 days;
+uint256 constant MAX_REGISTRATION = 1095 days;
 uint256 constant MAX_SPONSORED_REGISTRATION = 4015 days;
 
 /// @dev Fork of ETHRegistrarController with additional access controls:
@@ -46,7 +47,7 @@ contract SimplexController is
 
     uint256 public constant MIN_REGISTRATION_DURATION = MIN_REGISTRATION;
     uint256 public constant MIN_RENEWAL_DURATION = 365 days;
-    uint256 public constant MAX_REGISTRATION_DURATION = 1095 days;
+    uint256 public constant MAX_REGISTRATION_DURATION = MAX_REGISTRATION;
     uint256 public constant MAX_SPONSORED_REGISTRATION_DURATION = MAX_SPONSORED_REGISTRATION;
 
     // Manual reentrancy guard (see `_reentrancyStatus` + `nonReentrant`).
@@ -478,11 +479,10 @@ contract SimplexController is
     function registerSponsored(
         Registration calldata registration
     ) external onlySponsor nonReentrant {
-        if (registration.duration > MAX_SPONSORED_REGISTRATION_DURATION)
+        bytes32 labelhash = keccak256(bytes(registration.label));
+        if (registration.duration > _sponsoredHorizon(labelhash))
             revert DurationTooLong(registration.duration);
         _checkSimplexGates(registration.label, false);
-
-        bytes32 labelhash = keccak256(bytes(registration.label));
 
         // Zero cost in the event, and no `_rentPrice` call: nothing is paid on
         // this path, so the wei figure would be a quote rather than a payment —
@@ -606,7 +606,13 @@ contract SimplexController is
     ) external onlySponsor nonReentrant {
         bytes32 labelhash = keccak256(bytes(label));
         // zero cost, and no feed read — see `registerSponsored`
-        _renewCore(label, labelhash, duration, 0, referrer, MAX_SPONSORED_REGISTRATION_DURATION);
+        _renewCore(label, labelhash, duration, 0, referrer, _sponsoredHorizon(labelhash));
+    }
+
+    function _sponsoredHorizon(bytes32 labelhash) private view returns (uint256) {
+        return INamePolicy(namePolicy).bonaFideNames(labelhash)
+            ? MAX_REGISTRATION_DURATION
+            : MAX_SPONSORED_REGISTRATION_DURATION;
     }
 
     function _renewCore(

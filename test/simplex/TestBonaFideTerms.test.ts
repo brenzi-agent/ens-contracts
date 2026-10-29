@@ -18,6 +18,7 @@ import {
   registration,
   signIntent,
   signRegistration,
+  YEAR,
   YEAR_PRICE_USD,
 } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
@@ -454,6 +455,63 @@ describe('bona fide community names', () => {
           },
         ),
       ).toBeRevertedWithCustomError('NotController')
+    })
+  })
+
+  describe('duration', () => {
+    it('the sponsor registers a listed name for three years, not a second more', async () => {
+      const { controller, sponsor, namePolicy } = await load()
+      const tooLong = registration('community', bob.address, {
+        duration: 3n * YEAR + 1n,
+      })
+      await expect(
+        sponsor.write.registerWithCredit(
+          await signRegistration(connection, sponsor, tooLong),
+          { account: registrar },
+        ),
+      ).toBeRevertedWithCustomErrorFrom(controller, 'DurationTooLong')
+
+      const reg = registration('community', bob.address, {
+        duration: 3n * YEAR,
+      })
+      await namePolicy.write.commitUnderBonaFideCommunityTerms(
+        [await controller.read.makeCommitment([reg]), TERMS],
+        { account: bob },
+      )
+      await sponsor.write.registerWithCredit(
+        await signRegistration(connection, sponsor, reg),
+        { account: registrar },
+      )
+    })
+
+    it('the sponsor renews a listed name up to three years out, not further', async () => {
+      const f = await load()
+      await acceptAndRegister(f)
+      await f.sponsor.write.renewWithCredit(['community', YEAR, zeroHash], {
+        account: registrar,
+      })
+      await expect(
+        f.sponsor.write.renewWithCredit(['community', YEAR, zeroHash], {
+          account: registrar,
+        }),
+      ).toBeRevertedWithCustomErrorFrom(f.controller, 'DurationTooLong')
+    })
+
+    it('registerReserved registers a listed name for three years, not a second more', async () => {
+      const { namePolicy } = await load()
+      await namePolicy.write.addReservedNames([['community'], TRADEMARK], {
+        account: owner,
+      })
+      await expect(
+        namePolicy.write.registerReserved(
+          ['community', bob.address, 3n * YEAR + 1n],
+          { account: owner },
+        ),
+      ).toBeRevertedWithCustomError('DurationTooLong')
+      await namePolicy.write.registerReserved(
+        ['community', bob.address, 3n * YEAR],
+        { account: owner },
+      )
     })
   })
 
