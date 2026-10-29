@@ -160,7 +160,9 @@ describe('community names', () => {
       await register(controller, reg)
 
       const list = () =>
-        namePolicy.write.addCommunityNames([['heldname']], { account: guardian })
+        namePolicy.write.addCommunityNames([['heldname']], {
+          account: guardian,
+        })
       await expect(list())
         .toEmitEvent('CommunityNameSkipped')
         .withArgs({ name: 'heldname' })
@@ -168,17 +170,17 @@ describe('community names', () => {
       await expect(list())
         .toEmitEvent('CommunityNameSkipped')
         .withArgs({ name: 'heldname' })
-      expect(await namePolicy.read.communityNames([labelhash('heldname')])).toBe(
-        false,
-      )
+      expect(
+        await namePolicy.read.communityNames([labelhash('heldname')]),
+      ).toBe(false)
 
       await connection.networkHelpers.time.increase(GRACE_PERIOD)
       await expect(list())
         .toEmitEvent('CommunityNameAdded')
         .withArgs({ name: 'heldname' })
-      expect(await namePolicy.read.communityNames([labelhash('heldname')])).toBe(
-        true,
-      )
+      expect(
+        await namePolicy.read.communityNames([labelhash('heldname')]),
+      ).toBe(true)
     })
 
     it('pins the EIP-712 type hashes', async () => {
@@ -287,7 +289,9 @@ describe('community names', () => {
         'SimplexNamePolicy',
         proxy.address,
       )
-      await unset.write.addCommunityNames([['community']], { account: guardian })
+      await unset.write.addCommunityNames([['community']], {
+        account: guardian,
+      })
       await controller.write.setNamePolicy([unset.address], {
         account: owner,
       })
@@ -336,22 +340,16 @@ describe('community names', () => {
       const { controller, namePolicy, baseRegistrar } = await load()
       const reg = communityFor(alice.address)
       const commitment = await controller.read.makeCommitment([reg])
-      await namePolicy.write.commitUnderCommunityTerms(
-        [commitment, TERMS],
-        {
-          account: mallory,
-        },
-      )
+      await namePolicy.write.commitUnderCommunityTerms([commitment, TERMS], {
+        account: mallory,
+      })
       await expect(register(controller, reg)).toBeRevertedWithCustomErrorFrom(
         namePolicy,
         'TermsNotAccepted',
       )
-      await namePolicy.write.commitUnderCommunityTerms(
-        [commitment, TERMS],
-        {
-          account: alice,
-        },
-      )
+      await namePolicy.write.commitUnderCommunityTerms([commitment, TERMS], {
+        account: alice,
+      })
       await register(controller, reg)
       expect(await baseRegistrar.read.ownerOf([COMMUNITY_ID])).toBe(
         getAddress(alice.address),
@@ -362,12 +360,9 @@ describe('community names', () => {
       const { controller, namePolicy } = await load()
       const reg = communityFor(alice.address)
       const commitment = await controller.read.makeCommitment([reg])
-      await namePolicy.write.commitUnderCommunityTerms(
-        [commitment, TERMS],
-        {
-          account: alice,
-        },
-      )
+      await namePolicy.write.commitUnderCommunityTerms([commitment, TERMS], {
+        account: alice,
+      })
       await namePolicy.write.setTerms([NEW_TERMS_TEXT], {
         account: owner,
       })
@@ -376,12 +371,9 @@ describe('community names', () => {
         'TermsNotAccepted',
       )
       await expect(
-        namePolicy.write.commitUnderCommunityTerms(
-          [commitment, TERMS],
-          {
-            account: alice,
-          },
-        ),
+        namePolicy.write.commitUnderCommunityTerms([commitment, TERMS], {
+          account: alice,
+        }),
       ).toBeRevertedWithCustomError('TermsMismatch')
       await namePolicy.write.commitUnderCommunityTerms(
         [commitment, NEW_TERMS],
