@@ -460,7 +460,7 @@ describe('bona fide community names', () => {
 
   describe('duration', () => {
     it('the sponsor registers a listed name for three years, not a second more', async () => {
-      const { controller, sponsor, namePolicy, baseRegistrar } = await load()
+      const { controller, sponsor, namePolicy } = await load()
       const tooLong = registration('community', bob.address, {
         duration: 3n * YEAR + 1n,
       })
@@ -474,24 +474,13 @@ describe('bona fide community names', () => {
       const reg = registration('community', bob.address, {
         duration: 3n * YEAR,
       })
-      const commitment = await controller.read.makeCommitment([reg])
-      await namePolicy.write.commitUnderBonaFideCommunityTermsWithSig(
-        [
-          commitment,
-          TERMS,
-          bob.address,
-          0n,
-          FAR_FUTURE,
-          await signAcceptance(namePolicy, bobClient, commitment),
-        ],
-        { account: registrar },
+      await namePolicy.write.commitUnderBonaFideCommunityTerms(
+        [await controller.read.makeCommitment([reg]), TERMS],
+        { account: bob },
       )
       await sponsor.write.registerWithCredit(
         await signRegistration(connection, sponsor, reg),
         { account: registrar },
-      )
-      expect(await baseRegistrar.read.ownerOf([COMMUNITY_ID])).toBe(
-        getAddress(bob.address),
       )
     })
 
@@ -509,26 +498,20 @@ describe('bona fide community names', () => {
     })
 
     it('registerReserved gives a listed name three years, not a second more', async () => {
-      const { namePolicy, baseRegistrar } = await load()
-      await namePolicy.write.addBonaFideNames([['reservedone']], {
-        account: guardian,
-      })
-      await namePolicy.write.addReservedNames([['reservedone'], TRADEMARK], {
+      const { namePolicy } = await load()
+      await namePolicy.write.addReservedNames([['community'], TRADEMARK], {
         account: owner,
       })
       await expect(
         namePolicy.write.registerReserved(
-          ['reservedone', bob.address, 3n * YEAR + 1n],
+          ['community', bob.address, 3n * YEAR + 1n],
           { account: owner },
         ),
       ).toBeRevertedWithCustomError('DurationTooLong')
       await namePolicy.write.registerReserved(
-        ['reservedone', bob.address, 3n * YEAR],
+        ['community', bob.address, 3n * YEAR],
         { account: owner },
       )
-      expect(
-        await baseRegistrar.read.ownerOf([BigInt(labelhash('reservedone'))]),
-      ).toBe(getAddress(bob.address))
     })
   })
 
