@@ -1,8 +1,9 @@
 import hre from 'hardhat'
 import {
   getAddress,
-  keccak256,
   labelhash,
+  pad,
+  size,
   toHex,
   zeroAddress,
   zeroHash,
@@ -10,8 +11,13 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import {
+  commitUnderNameTerms,
+  COMMUNITY_NAME_TERMS,
+  COMMUNITY_NAME_TERMS_LINK,
   deployNamesV2,
   MIN_REGISTRATION,
+  NAME_TERMS,
+  NAME_TERMS_LINK,
   node,
   Reason,
   registration,
@@ -21,11 +27,10 @@ import {
 import { DAY } from '../fixtures/constants.js'
 
 const GRACE_PERIOD = 90n * DAY
-const TERMS_TEXT = 'bona fide community terms v1'
-const TERMS = keccak256(toHex(TERMS_TEXT))
 const KEY = 'simplex.contact'
 
 const connection = await hre.network.connect()
+const publicClient = await connection.viem.getPublicClient()
 const testClient = await connection.viem.getTestClient()
 const [ownerClient, guardianClient, , aliceClient, brandClient] =
   await connection.viem.getWalletClients()
@@ -61,9 +66,7 @@ async function registerForAlice(
   { controller }: Fixture,
   reg: ReturnType<typeof registration>,
 ) {
-  await controller.write.commit([await controller.read.makeCommitment([reg])], {
-    account: alice,
-  })
+  await commitUnderNameTerms(connection, controller, reg, { account: alice })
   await controller.write.register([reg], {
     account: alice,
     value: 2n * YEAR_PRICE_USD,
@@ -176,17 +179,14 @@ describe('name policy', () => {
         [['reservedname'], Reason.Trademark],
         { account: owner },
       )
-      await namePolicy.write.setTerms([TERMS_TEXT], {
-        account: owner,
-      })
       await namePolicy.write.addBonaFideNames([['community']], {
         account: owner,
       })
       const commitment = await controller.read.makeCommitment([
         registration('community', alice.address),
       ])
-      await namePolicy.write.commitUnderBonaFideCommunityTerms(
-        [commitment, TERMS],
+      await namePolicy.write.commitUnderCommunityNameTerms(
+        [commitment, COMMUNITY_NAME_TERMS],
         { account: alice },
       )
 
@@ -202,11 +202,32 @@ describe('name policy', () => {
       expect(
         await namePolicy.read.bonaFideNames([labelhash('community')]),
       ).toBe(true)
-      expect(await namePolicy.read.termsHash()).toBe(TERMS)
-      expect(await namePolicy.read.termsText()).toBe(TERMS_TEXT)
+      expect(await namePolicy.read.nameTermsHash()).toBe(NAME_TERMS)
+      expect(await namePolicy.read.nameTermsLink()).toBe(NAME_TERMS_LINK)
+      expect(await namePolicy.read.communityNameTermsHash()).toBe(
+        COMMUNITY_NAME_TERMS,
+      )
+      expect(await namePolicy.read.communityNameTermsLink()).toBe(
+        COMMUNITY_NAME_TERMS_LINK,
+      )
       expect(
         await namePolicy.read.acceptedTerms([commitment, alice.address]),
-      ).toBe(TERMS)
+      ).toBe(COMMUNITY_NAME_TERMS)
+    })
+
+    it('the terms take slots 102, 106, 107 and 108 of the proxy', async () => {
+      const { namePolicy } = await load()
+      const slot = async (i: number) =>
+        publicClient.getStorageAt({
+          address: namePolicy.address,
+          slot: pad(toHex(i)),
+        })
+      const longString = (link: string) =>
+        pad(toHex(2n * BigInt(size(toHex(link))) + 1n))
+      expect(await slot(102)).toBe(COMMUNITY_NAME_TERMS)
+      expect(await slot(106)).toBe(longString(COMMUNITY_NAME_TERMS_LINK))
+      expect(await slot(107)).toBe(longString(NAME_TERMS_LINK))
+      expect(await slot(108)).toBe(NAME_TERMS)
     })
   })
 
@@ -359,9 +380,15 @@ describe('name policy', () => {
         ),
       ).toBeRevertedWithCustomError('NotProxy')
       await expect(
-        namePolicyImplementation.write.setTerms([TERMS_TEXT], {
+        namePolicyImplementation.write.setNameTerms([NAME_TERMS_LINK], {
           account: owner,
         }),
+      ).toBeRevertedWithCustomError('NotProxy')
+      await expect(
+        namePolicyImplementation.write.setCommunityNameTerms(
+          [COMMUNITY_NAME_TERMS_LINK],
+          { account: owner },
+        ),
       ).toBeRevertedWithCustomError('NotProxy')
     })
 

@@ -35,7 +35,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     /// @dev Reason.None means not reserved, so this one mapping answers both
     ///      "is it reserved" and "why" - the two cannot drift apart.
     mapping(bytes32 => NameEntry) private _names;
-    bytes32 public termsHash;
+    bytes32 public communityNameTermsHash;
     mapping(bytes32 => mapping(address => bytes32)) public acceptedTerms;
     mapping(uint256 => mapping(address => mapping(address => mapping(uint256 => bytes32))))
         public acceptedClaimTerms;
@@ -47,13 +47,21 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         );
     bytes32 private constant _EIP712_NAME = keccak256("SimplexNamePolicy");
     bytes32 private constant _EIP712_VERSION = keccak256("1");
-    bytes32 public constant ACCEPT_TYPEHASH =
+    bytes32 public constant ACCEPT_NAME_TERMS_TYPEHASH =
         keccak256(
-            "AcceptBonaFideTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)"
+            "AcceptNameTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)"
         );
-    bytes32 public constant ACCEPT_FOR_CLAIM_TYPEHASH =
+    bytes32 public constant ACCEPT_NAME_TERMS_FOR_CLAIM_TYPEHASH =
         keccak256(
-            "AcceptBonaFideTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)"
+            "AcceptNameTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)"
+        );
+    bytes32 public constant ACCEPT_COMMUNITY_NAME_TERMS_TYPEHASH =
+        keccak256(
+            "AcceptCommunityNameTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)"
+        );
+    bytes32 public constant ACCEPT_COMMUNITY_NAME_TERMS_FOR_CLAIM_TYPEHASH =
+        keccak256(
+            "AcceptCommunityNameTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)"
         );
 
     event ReservedNameAdded(string name, Reason reason);
@@ -62,8 +70,14 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     event BonaFideNameAdded(string name);
     event BonaFideNameSkipped(string name);
     event BonaFideNameRemoved(string name);
-    event TermsSet(bytes32 termsHash);
-    event BonaFideTermsAccepted(
+    event NameTermsSet(bytes32 termsHash, string link);
+    event CommunityNameTermsSet(bytes32 termsHash, string link);
+    event NameTermsAccepted(
+        string name,
+        address indexed holder,
+        bytes32 termsHash
+    );
+    event CommunityNameTermsAccepted(
         string name,
         address indexed holder,
         bytes32 termsHash
@@ -215,23 +229,32 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         }
     }
 
-    function setTerms(
-        string calldata text
+    function setNameTerms(
+        string calldata link
     ) external onlyOwner {
-        if (bytes(text).length == 0) revert ZeroTerms();
-        termsHash = keccak256(bytes(text));
-        termsText = text;
-        emit TermsSet(termsHash);
+        if (bytes(link).length == 0) revert ZeroTerms();
+        nameTermsHash = keccak256(bytes(link));
+        nameTermsLink = link;
+        emit NameTermsSet(nameTermsHash, link);
     }
 
-    function commitUnderBonaFideCommunityTerms(
+    function setCommunityNameTerms(
+        string calldata link
+    ) external onlyOwner {
+        if (bytes(link).length == 0) revert ZeroTerms();
+        communityNameTermsHash = keccak256(bytes(link));
+        communityNameTermsLink = link;
+        emit CommunityNameTermsSet(communityNameTermsHash, link);
+    }
+
+    function commitUnderNameTerms(
         bytes32 commitment,
         bytes32 acceptedTermsHash
     ) external {
-        _acceptForCommitment(commitment, acceptedTermsHash, msg.sender);
+        _acceptForCommitment(commitment, acceptedTermsHash, nameTermsHash, msg.sender);
     }
 
-    function commitUnderBonaFideCommunityTermsWithSig(
+    function commitUnderNameTermsWithSig(
         bytes32 commitment,
         bytes32 acceptedTermsHash,
         address acceptor,
@@ -243,7 +266,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
             acceptor,
             keccak256(
                 abi.encode(
-                    ACCEPT_TYPEHASH,
+                    ACCEPT_NAME_TERMS_TYPEHASH,
                     commitment,
                     acceptedTermsHash,
                     nonce,
@@ -254,19 +277,52 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
             deadline,
             sig
         );
-        _acceptForCommitment(commitment, acceptedTermsHash, acceptor);
+        _acceptForCommitment(commitment, acceptedTermsHash, nameTermsHash, acceptor);
     }
 
-    function acceptBonaFideCommunityTermsForClaim(
+    function commitUnderCommunityNameTerms(
+        bytes32 commitment,
+        bytes32 acceptedTermsHash
+    ) external {
+        _acceptForCommitment(commitment, acceptedTermsHash, communityNameTermsHash, msg.sender);
+    }
+
+    function commitUnderCommunityNameTermsWithSig(
+        bytes32 commitment,
+        bytes32 acceptedTermsHash,
+        address acceptor,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata sig
+    ) external {
+        _consumeIntent(
+            acceptor,
+            keccak256(
+                abi.encode(
+                    ACCEPT_COMMUNITY_NAME_TERMS_TYPEHASH,
+                    commitment,
+                    acceptedTermsHash,
+                    nonce,
+                    deadline
+                )
+            ),
+            nonce,
+            deadline,
+            sig
+        );
+        _acceptForCommitment(commitment, acceptedTermsHash, communityNameTermsHash, acceptor);
+    }
+
+    function acceptNameTermsForClaim(
         uint256 tokenId,
         address from,
         uint256 offer,
         bytes32 acceptedTermsHash
     ) external {
-        _acceptForClaim(tokenId, from, offer, acceptedTermsHash, msg.sender);
+        _acceptForClaim(tokenId, from, offer, acceptedTermsHash, nameTermsHash, msg.sender);
     }
 
-    function acceptBonaFideCommunityTermsForClaimWithSig(
+    function acceptNameTermsForClaimWithSig(
         uint256 tokenId,
         address from,
         uint256 offer,
@@ -280,7 +336,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
             recipient,
             keccak256(
                 abi.encode(
-                    ACCEPT_FOR_CLAIM_TYPEHASH,
+                    ACCEPT_NAME_TERMS_FOR_CLAIM_TYPEHASH,
                     tokenId,
                     from,
                     offer,
@@ -293,7 +349,46 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
             deadline,
             sig
         );
-        _acceptForClaim(tokenId, from, offer, acceptedTermsHash, recipient);
+        _acceptForClaim(tokenId, from, offer, acceptedTermsHash, nameTermsHash, recipient);
+    }
+
+    function acceptCommunityNameTermsForClaim(
+        uint256 tokenId,
+        address from,
+        uint256 offer,
+        bytes32 acceptedTermsHash
+    ) external {
+        _acceptForClaim(tokenId, from, offer, acceptedTermsHash, communityNameTermsHash, msg.sender);
+    }
+
+    function acceptCommunityNameTermsForClaimWithSig(
+        uint256 tokenId,
+        address from,
+        uint256 offer,
+        bytes32 acceptedTermsHash,
+        address recipient,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata sig
+    ) external {
+        _consumeIntent(
+            recipient,
+            keccak256(
+                abi.encode(
+                    ACCEPT_COMMUNITY_NAME_TERMS_FOR_CLAIM_TYPEHASH,
+                    tokenId,
+                    from,
+                    offer,
+                    acceptedTermsHash,
+                    nonce,
+                    deadline
+                )
+            ),
+            nonce,
+            deadline,
+            sig
+        );
+        _acceptForClaim(tokenId, from, offer, acceptedTermsHash, communityNameTermsHash, recipient);
     }
 
     function consumeRegistration(
@@ -306,11 +401,9 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         if (address(this) == _self) revert NotProxy();
         NameEntry memory entry = _names[labelhash];
         if (entry.reserved != Reason.None) revert NameReserved(label);
-        if (!entry.bonaFide) return;
         bytes32 accepted = acceptedTerms[commitment][owner];
-        if (!_isCurrentTerms(accepted)) revert TermsNotAccepted(label);
         delete acceptedTerms[commitment][owner];
-        emit BonaFideTermsAccepted(label, owner, accepted);
+        _checkAcceptance(entry.bonaFide, accepted, label, owner);
     }
 
     function consumeTransfer(
@@ -322,11 +415,9 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     ) external {
         if (msg.sender != address(registrar)) revert NotRegistrar();
         if (address(this) == _self) revert NotProxy();
-        if (!_names[bytes32(tokenId)].bonaFide) return;
         bytes32 accepted = acceptedClaimTerms[tokenId][from][to][offer];
-        if (!_isCurrentTerms(accepted)) revert TermsNotAccepted(label);
         delete acceptedClaimTerms[tokenId][from][to][offer];
-        emit BonaFideTermsAccepted(label, to, accepted);
+        _checkAcceptance(_names[bytes32(tokenId)].bonaFide, accepted, label, to);
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
@@ -351,10 +442,11 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     function _acceptForCommitment(
         bytes32 commitment,
         bytes32 acceptedTermsHash,
+        bytes32 currentTermsHash,
         address acceptor
     ) private {
-        if (!_isCurrentTerms(acceptedTermsHash))
-            revert TermsMismatch(acceptedTermsHash, termsHash);
+        if (!_isCurrentTerms(acceptedTermsHash, currentTermsHash))
+            revert TermsMismatch(acceptedTermsHash, currentTermsHash);
         acceptedTerms[commitment][acceptor] = acceptedTermsHash;
         bool unexpiredCommitmentExists = controller.commitments(commitment) +
             controller.maxCommitmentAge() >=
@@ -367,15 +459,36 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         address from,
         uint256 offer,
         bytes32 acceptedTermsHash,
+        bytes32 currentTermsHash,
         address recipient
     ) private {
-        if (!_isCurrentTerms(acceptedTermsHash))
-            revert TermsMismatch(acceptedTermsHash, termsHash);
+        if (!_isCurrentTerms(acceptedTermsHash, currentTermsHash))
+            revert TermsMismatch(acceptedTermsHash, currentTermsHash);
         acceptedClaimTerms[tokenId][from][recipient][offer] = acceptedTermsHash;
     }
 
-    function _isCurrentTerms(bytes32 hash) private view returns (bool) {
-        return hash != bytes32(0) && hash == termsHash;
+    function _checkAcceptance(
+        bool bonaFide,
+        bytes32 accepted,
+        string calldata label,
+        address holder
+    ) private {
+        if (bonaFide) {
+            if (!_isCurrentTerms(accepted, communityNameTermsHash))
+                revert TermsNotAccepted(label);
+            emit CommunityNameTermsAccepted(label, holder, accepted);
+        } else {
+            if (!_isCurrentTerms(accepted, nameTermsHash))
+                revert TermsNotAccepted(label);
+            emit NameTermsAccepted(label, holder, accepted);
+        }
+    }
+
+    function _isCurrentTerms(
+        bytes32 hash,
+        bytes32 currentTermsHash
+    ) private pure returns (bool) {
+        return hash != bytes32(0) && hash == currentTermsHash;
     }
 
     function _consumeIntent(
@@ -406,6 +519,8 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
             revert ImplementationMismatch();
     }
 
-    string public termsText;
-    uint256[44] private __gap;
+    string public communityNameTermsLink;
+    string public nameTermsLink;
+    bytes32 public nameTermsHash;
+    uint256[42] private __gap;
 }
