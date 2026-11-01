@@ -12,13 +12,16 @@ import { describe, expect, it } from 'vitest'
 
 import { DAY } from '../fixtures/constants.js'
 import {
+  acceptGeneralTermsForClaim,
   AMPLE_ALLOWANCE,
+  commitUnderGeneralTerms,
   deployNamesV2,
   FAR_FUTURE,
   MIN_REGISTRATION,
   node,
   registerWithCredit,
   registration,
+  signGeneralTermsAcceptance,
   signRegistration,
   sponsorOf,
   TLD_NODE,
@@ -62,8 +65,8 @@ async function fixture() {
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
 async function commit(controller: any, reg: any) {
-  await controller.write.commit([await controller.read.makeCommitment([reg])], {
-    account: registrar,
+  await commitUnderGeneralTerms(connection, controller, reg, {
+    account: reg.owner,
   })
 }
 
@@ -105,10 +108,7 @@ describe('recipient consent', () => {
       ).toBeRevertedWithCustomError('OwnerMustBeCaller')
 
       const forAlice = registration('aliceown', alice.address)
-      await controller.write.commit(
-        [await controller.read.makeCommitment([forAlice])],
-        { account: alice },
-      )
+      await commit(controller, forAlice)
       await controller.write.register([forAlice], {
         account: alice,
         value: 10n ** 20n,
@@ -255,13 +255,18 @@ describe('recipient consent', () => {
     })
 
     it('a contract owner consents through ERC-1271', async () => {
-      const { controller, sponsor, baseRegistrar } = await load()
+      const { controller, sponsor, baseRegistrar, namePolicy } = await load()
       const wallet = await connection.viem.deployContract(
         'MockSmartContractWallet',
         [bob.address],
       )
       const reg = registration('walletname', wallet.address)
-      await commit(controller, reg)
+      await namePolicy.write.commitUnderGeneralTermsWithSig(
+        await signGeneralTermsAcceptance(connection, controller, reg, {
+          signer: bobClient,
+        }),
+        { account: registrar },
+      )
       await sponsor.write.registerWithCredit(
         await signRegistration(connection, sponsor, reg, { signer: bobClient }),
         { account: registrar },
@@ -346,6 +351,15 @@ describe('recipient consent', () => {
       await baseRegistrar.write.approve([bob.address, ALICE_ID], {
         account: alice,
       })
+      await acceptGeneralTermsForClaim(
+        connection,
+        baseRegistrar,
+        ALICE_ID,
+        alice.address,
+        {
+          account: bob,
+        },
+      )
       await baseRegistrar.write.transferFrom(
         [alice.address, bob.address, ALICE_ID],
         { account: bob },
@@ -360,6 +374,15 @@ describe('recipient consent', () => {
       await baseRegistrar.write.approve([carol.address, ALICE_ID], {
         account: bob,
       })
+      await acceptGeneralTermsForClaim(
+        connection,
+        baseRegistrar,
+        ALICE_ID,
+        bob.address,
+        {
+          account: carol,
+        },
+      )
       await baseRegistrar.write.safeTransferFrom(
         [bob.address, carol.address, ALICE_ID],
         { account: carol },
@@ -388,6 +411,15 @@ describe('recipient consent', () => {
         account: alice,
       })
       // carol, an operator, takes it for herself
+      await acceptGeneralTermsForClaim(
+        connection,
+        baseRegistrar,
+        ALICE_ID,
+        alice.address,
+        {
+          account: carol,
+        },
+      )
       await baseRegistrar.write.transferFrom(
         [alice.address, carol.address, ALICE_ID],
         { account: carol },

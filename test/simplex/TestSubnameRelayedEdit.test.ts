@@ -3,7 +3,9 @@ import { labelhash, namehash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForClaim,
   AMPLE_ALLOWANCE,
+  commitUnderGeneralTerms,
   deployNamesV2,
   FAR_FUTURE,
   node,
@@ -36,10 +38,7 @@ async function fixture() {
   const reg = registration('twoldname', alice.address, {
     resolver: f.resolver.address,
   })
-  await f.controller.write.commit(
-    [await f.controller.read.makeCommitment([reg])],
-    { account: registrar },
-  )
+  await commitUnderGeneralTerms(connection, f.controller, reg, { account: alice })
   await registerWithCredit(connection, f.sponsor, reg, { account: registrar })
   await f.ens.write.setApprovalForAll([f.subnameRegistrar.address, true], {
     account: alice,
@@ -123,6 +122,13 @@ describe('relayed edits reach subnames', () => {
     await baseRegistrar.write.approve([bob.address, BigInt(labelhash('twoldname'))], {
       account: alice,
     })
+    await acceptGeneralTermsForClaim(
+      connection,
+      baseRegistrar,
+      BigInt(labelhash('twoldname')),
+      alice.address,
+      { account: bob },
+    )
     await baseRegistrar.write.transferFrom(
       [alice.address, bob.address, BigInt(labelhash('twoldname'))],
       { account: bob },

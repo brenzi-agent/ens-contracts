@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
+  commitUnderGeneralTerms,
   deployNamesV2,
   MIN_REGISTRATION,
   node,
@@ -173,10 +174,7 @@ describe('registerReserved', () => {
       reverseRecord: 0,
       referrer: `0x${'00'.repeat(32)}` as `0x${string}`,
     }
-    await controller.write.commit(
-      [await controller.read.makeCommitment([reg])],
-      { account: brand },
-    )
+    await commitUnderGeneralTerms(connection, controller, reg, { account: brand })
     await controller.write.register([reg], {
       account: brand,
       value: 10n ** 21n,

@@ -7,7 +7,7 @@ import {
   zeroHash,
 } from 'viem'
 
-import { deployNamePolicy } from './fixtures/namesV2.js'
+import { commitUnderGeneralTerms, deployNamePolicy } from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
 const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
@@ -157,8 +157,7 @@ async function commitAndRegister(
     reverseRecord: 0,
     referrer: zeroHash,
   }
-  const commitment = await controller.read.makeCommitment([registration])
-  await controller.write.commit([commitment], { account })
+  await commitUnderGeneralTerms(connection, controller, registration, { account })
   await testClient.increaseTime({ seconds: 601 })
   await testClient.mine({ blocks: 1 })
   const price = await controller.read.rentPrice([label, duration])
@@ -702,8 +701,9 @@ describe('SimplexController', () => {
         reverseRecord: 0,
         referrer: zeroHash,
       }
-      const commitment = await controller.read.makeCommitment([registration])
-      await controller.write.commit([commitment], { account: gasHog.address })
+      await commitUnderGeneralTerms(connection, controller, registration, {
+        account: gasHog.address,
+      })
       await testClient.increaseTime({ seconds: 601 })
       await testClient.mine({ blocks: 1 })
       const price = await controller.read.rentPrice(['refunde', REGISTRATION_TIME])
@@ -921,8 +921,7 @@ describe('SimplexController', () => {
         reverseRecord: 0,
         referrer: zeroHash,
       }
-      const commitment = await controller.read.makeCommitment([registration])
-      await controller.write.commit([commitment], {
+      await commitUnderGeneralTerms(connection, controller, registration, {
         account: registrantAccount,
       })
       await testClient.increaseTime({ seconds: 601 })
@@ -963,8 +962,9 @@ describe('SimplexController', () => {
         await attacker.write.setMode([mode])
 
         const registration = attackRegistration(attacker.address)
-        const commitment = await controller.read.makeCommitment([registration])
-        await controller.write.commit([commitment], { account: registrantAccount })
+        await commitUnderGeneralTerms(connection, controller, registration, {
+          account: registrantAccount,
+        })
         await testClient.increaseTime({ seconds: 601 })
         await testClient.mine({ blocks: 1 })
         const price = await controller.read.rentPrice([
@@ -1022,11 +1022,10 @@ describe('SimplexController', () => {
     registration: any,
     account = registrantAccount,
   ) => {
-    const commitment = await controller.read.makeCommitment([registration])
-    await controller.write.commit([commitment], { account })
+    await commitUnderGeneralTerms(connection, controller, registration, { account })
     await testClient.increaseTime({ seconds: 601 })
     await testClient.mine({ blocks: 1 })
-    return commitment
+    return controller.read.makeCommitment([registration])
   }
 
   const totalPrice = async (
@@ -1556,8 +1555,9 @@ describe('SimplexController', () => {
         value: 10_000_000_000_000_000_000n,
       })
       const registration = mkReg({ label: 'refundfail', owner: rejecter.address })
-      const commitment = await controller.read.makeCommitment([registration])
-      await controller.write.commit([commitment], { account: rejecter.address })
+      await commitUnderGeneralTerms(connection, controller, registration, {
+        account: rejecter.address,
+      })
       await testClient.increaseTime({ seconds: 601 })
       await testClient.mine({ blocks: 1 })
       const total = await totalPrice(controller, 'refundfail')
@@ -1579,8 +1579,9 @@ describe('SimplexController', () => {
         value: 10_000_000_000_000_000_000n,
       })
       const registration = mkReg({ label: 'renewfail', owner: rejecter.address })
-      const commitment = await controller.read.makeCommitment([registration])
-      await controller.write.commit([commitment], { account: rejecter.address })
+      await commitUnderGeneralTerms(connection, controller, registration, {
+        account: rejecter.address,
+      })
       await testClient.increaseTime({ seconds: 601 })
       await testClient.mine({ blocks: 1 })
       const total = await totalPrice(controller, 'renewfail')

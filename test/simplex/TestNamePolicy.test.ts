@@ -1,8 +1,9 @@
 import hre from 'hardhat'
 import {
   getAddress,
-  keccak256,
   labelhash,
+  pad,
+  size,
   toHex,
   zeroAddress,
   zeroHash,
@@ -10,7 +11,12 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import {
+  commitUnderGeneralTerms,
+  COMMUNITY_TERMS,
+  COMMUNITY_TERMS_LINK,
   deployNamesV2,
+  GENERAL_TERMS,
+  GENERAL_TERMS_LINK,
   MIN_REGISTRATION,
   node,
   Reason,
@@ -21,11 +27,10 @@ import {
 import { DAY } from '../fixtures/constants.js'
 
 const GRACE_PERIOD = 90n * DAY
-const TERMS_TEXT = 'bona fide community terms v1'
-const TERMS = keccak256(toHex(TERMS_TEXT))
 const KEY = 'simplex.contact'
 
 const connection = await hre.network.connect()
+const publicClient = await connection.viem.getPublicClient()
 const testClient = await connection.viem.getTestClient()
 const [ownerClient, guardianClient, , aliceClient, brandClient] =
   await connection.viem.getWalletClients()
@@ -61,9 +66,7 @@ async function registerForAlice(
   { controller }: Fixture,
   reg: ReturnType<typeof registration>,
 ) {
-  await controller.write.commit([await controller.read.makeCommitment([reg])], {
-    account: alice,
-  })
+  await commitUnderGeneralTerms(connection, controller, reg, { account: alice })
   await controller.write.register([reg], {
     account: alice,
     value: 2n * YEAR_PRICE_USD,
@@ -88,7 +91,7 @@ describe('name policy', () => {
     it('removing a name from one list leaves it on the other', async () => {
       const { namePolicy } = await load()
       const id = labelhash('bothlists')
-      await namePolicy.write.addBonaFideNames([['bothlists']], {
+      await namePolicy.write.addCommunityNames([['bothlists']], {
         account: owner,
       })
       await namePolicy.write.addReservedNames(
@@ -98,22 +101,22 @@ describe('name policy', () => {
       await namePolicy.write.removeReservedNames([['bothlists']], {
         account: owner,
       })
-      expect(await namePolicy.read.bonaFideNames([id])).toBe(true)
+      expect(await namePolicy.read.communityNames([id])).toBe(true)
 
       await namePolicy.write.addReservedNames(
         [['bothlists'], Reason.Trademark],
         { account: owner },
       )
-      await namePolicy.write.removeBonaFideNames([['bothlists']], {
+      await namePolicy.write.removeCommunityNames([['bothlists']], {
         account: owner,
       })
       expect(await namePolicy.read.reservedNames([id])).toBe(Reason.Trademark)
     })
 
-    it('registerReserved releases the reservation and keeps the bona fide listing', async () => {
+    it('registerReserved releases the reservation and keeps the community listing', async () => {
       const { namePolicy } = await load()
       const id = labelhash('bothlists')
-      await namePolicy.write.addBonaFideNames([['bothlists']], {
+      await namePolicy.write.addCommunityNames([['bothlists']], {
         account: owner,
       })
       await namePolicy.write.addReservedNames(
@@ -125,7 +128,7 @@ describe('name policy', () => {
         { account: owner },
       )
       expect(await namePolicy.read.reservedNames([id])).toBe(Reason.None)
-      expect(await namePolicy.read.bonaFideNames([id])).toBe(true)
+      expect(await namePolicy.read.communityNames([id])).toBe(true)
     })
   })
 
@@ -170,23 +173,20 @@ describe('name policy', () => {
       }
     })
 
-    it('an upgrade preserves the reserved and bona fide lists, the terms and the acceptances', async () => {
+    it('an upgrade preserves the reserved and community lists, the terms and the acceptances', async () => {
       const { controller, baseRegistrar, namePolicy } = await load()
       await namePolicy.write.addReservedNames(
         [['reservedname'], Reason.Trademark],
         { account: owner },
       )
-      await namePolicy.write.setTerms([TERMS_TEXT], {
-        account: owner,
-      })
-      await namePolicy.write.addBonaFideNames([['community']], {
+      await namePolicy.write.addCommunityNames([['community']], {
         account: owner,
       })
       const commitment = await controller.read.makeCommitment([
         registration('community', alice.address),
       ])
-      await namePolicy.write.commitUnderBonaFideCommunityTerms(
-        [commitment, TERMS],
+      await namePolicy.write.commitUnderCommunityTerms(
+        [commitment, COMMUNITY_TERMS],
         { account: alice },
       )
 
@@ -200,13 +200,34 @@ describe('name policy', () => {
         await namePolicy.read.reservedNames([labelhash('reservedname')]),
       ).toBe(Reason.Trademark)
       expect(
-        await namePolicy.read.bonaFideNames([labelhash('community')]),
+        await namePolicy.read.communityNames([labelhash('community')]),
       ).toBe(true)
-      expect(await namePolicy.read.termsHash()).toBe(TERMS)
-      expect(await namePolicy.read.termsText()).toBe(TERMS_TEXT)
+      expect(await namePolicy.read.generalTermsHash()).toBe(GENERAL_TERMS)
+      expect(await namePolicy.read.generalTermsLink()).toBe(GENERAL_TERMS_LINK)
+      expect(await namePolicy.read.communityTermsHash()).toBe(
+        COMMUNITY_TERMS,
+      )
+      expect(await namePolicy.read.communityTermsLink()).toBe(
+        COMMUNITY_TERMS_LINK,
+      )
       expect(
         await namePolicy.read.acceptedTerms([commitment, alice.address]),
-      ).toBe(TERMS)
+      ).toBe(COMMUNITY_TERMS)
+    })
+
+    it('the terms take slots 102, 106, 107 and 108 of the proxy', async () => {
+      const { namePolicy } = await load()
+      const slot = async (i: number) =>
+        publicClient.getStorageAt({
+          address: namePolicy.address,
+          slot: pad(toHex(i)),
+        })
+      const longString = (link: string) =>
+        pad(toHex(2n * BigInt(size(toHex(link))) + 1n))
+      expect(await slot(102)).toBe(COMMUNITY_TERMS)
+      expect(await slot(106)).toBe(longString(COMMUNITY_TERMS_LINK))
+      expect(await slot(107)).toBe(longString(GENERAL_TERMS_LINK))
+      expect(await slot(108)).toBe(GENERAL_TERMS)
     })
   })
 
@@ -359,9 +380,15 @@ describe('name policy', () => {
         ),
       ).toBeRevertedWithCustomError('NotProxy')
       await expect(
-        namePolicyImplementation.write.setTerms([TERMS_TEXT], {
+        namePolicyImplementation.write.setGeneralTerms([GENERAL_TERMS_LINK], {
           account: owner,
         }),
+      ).toBeRevertedWithCustomError('NotProxy')
+      await expect(
+        namePolicyImplementation.write.setCommunityTerms(
+          [COMMUNITY_TERMS_LINK],
+          { account: owner },
+        ),
       ).toBeRevertedWithCustomError('NotProxy')
     })
 

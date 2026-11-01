@@ -1,5 +1,13 @@
 import type { NetworkConnection } from 'hardhat/types/network'
-import { encodeFunctionData, labelhash, namehash, zeroAddress, zeroHash } from 'viem'
+import {
+  encodeFunctionData,
+  keccak256,
+  labelhash,
+  namehash,
+  toHex,
+  zeroAddress,
+  zeroHash,
+} from 'viem'
 
 import { DAY } from '../../fixtures/constants.js'
 
@@ -44,6 +52,14 @@ export const YEAR_PRICE_USD = yearPriceUSD(6)
 
 export const TLD = 'simplex'
 export const TLD_NODE = namehash(TLD)
+
+export const termsLink = (path: string, digit: string) =>
+  `https://git.simplex.chat/simplex-chat/simplex-chat/raw/commit/${digit.repeat(40)}/${path}#sha256=${digit.repeat(64)}`
+
+export const GENERAL_TERMS_LINK = termsLink('general-terms.md', '1')
+export const GENERAL_TERMS = keccak256(toHex(GENERAL_TERMS_LINK))
+export const COMMUNITY_TERMS_LINK = termsLink('community-terms.md', '2')
+export const COMMUNITY_TERMS = keccak256(toHex(COMMUNITY_TERMS_LINK))
 
 /**
  * The full `.simplex` stack, wired as `deploy-simplex.mjs` will wire it:
@@ -177,6 +193,10 @@ export async function deployNamePolicy(
   await controller.write.setNamePolicy([namePolicy.address], {
     account: owner,
   })
+  await namePolicy.write.setGeneralTerms([GENERAL_TERMS_LINK], { account: owner })
+  await namePolicy.write.setCommunityTerms([COMMUNITY_TERMS_LINK], {
+    account: owner,
+  })
   await baseRegistrar.write.setNamePolicy([namePolicy.address])
   return { namePolicy, namePolicyImplementation }
 }
@@ -266,13 +286,27 @@ export const eip712Types = {
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
-  AcceptBonaFideTerms: [
+  AcceptGeneralTerms: [
     { name: 'commitment', type: 'bytes32' },
     { name: 'termsHash', type: 'bytes32' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
-  AcceptBonaFideTermsForClaim: [
+  AcceptGeneralTermsForClaim: [
+    { name: 'tokenId', type: 'uint256' },
+    { name: 'from', type: 'address' },
+    { name: 'offer', type: 'uint256' },
+    { name: 'termsHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+  AcceptCommunityTerms: [
+    { name: 'commitment', type: 'bytes32' },
+    { name: 'termsHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+  AcceptCommunityTermsForClaim: [
     { name: 'tokenId', type: 'uint256' },
     { name: 'from', type: 'address' },
     { name: 'offer', type: 'uint256' },
@@ -373,6 +407,70 @@ export async function registerWithCredit(
 ) {
   return sponsor.write.registerWithCredit(
     await signRegistration(connection, sponsor, reg),
+    options,
+  )
+}
+
+export async function commitUnderGeneralTerms(
+  connection: NetworkConnection,
+  controller: any,
+  reg: any,
+  options: { account: any },
+) {
+  const namePolicy = await connection.viem.getContractAt(
+    'SimplexNamePolicy',
+    await controller.read.namePolicy(),
+  )
+  return namePolicy.write.commitUnderGeneralTerms(
+    [await controller.read.makeCommitment([reg]), GENERAL_TERMS],
+    options,
+  )
+}
+
+export async function signGeneralTermsAcceptance(
+  connection: NetworkConnection,
+  controller: any,
+  reg: any,
+  { signer }: { signer?: any } = {},
+): Promise<
+  [`0x${string}`, `0x${string}`, `0x${string}`, bigint, bigint, `0x${string}`]
+> {
+  const namePolicy = await connection.viem.getContractAt(
+    'SimplexNamePolicy',
+    await controller.read.namePolicy(),
+  )
+  const client =
+    signer ??
+    (await connection.viem.getWalletClients()).find(
+      (c) => c.account.address.toLowerCase() === reg.owner.toLowerCase(),
+    )
+  if (!client) throw new Error(`no wallet client for ${reg.owner}`)
+  const commitment = await controller.read.makeCommitment([reg])
+  const nonce: bigint = await namePolicy.read.nonces([reg.owner])
+  const sig = await signIntent(
+    await connection.viem.getPublicClient(),
+    client,
+    'SimplexNamePolicy',
+    namePolicy.address,
+    'AcceptGeneralTerms',
+    { commitment, termsHash: GENERAL_TERMS, nonce, deadline: FAR_FUTURE },
+  )
+  return [commitment, GENERAL_TERMS, reg.owner, nonce, FAR_FUTURE, sig]
+}
+
+export async function acceptGeneralTermsForClaim(
+  connection: NetworkConnection,
+  baseRegistrar: any,
+  tokenId: bigint,
+  from: `0x${string}`,
+  options: { account: any },
+) {
+  const namePolicy = await connection.viem.getContractAt(
+    'SimplexNamePolicy',
+    await baseRegistrar.read.namePolicy(),
+  )
+  return namePolicy.write.acceptGeneralTermsForClaim(
+    [tokenId, from, await baseRegistrar.read.offers([tokenId]), GENERAL_TERMS],
     options,
   )
 }

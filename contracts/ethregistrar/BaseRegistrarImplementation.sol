@@ -524,8 +524,8 @@ contract BaseRegistrarImplementation is
     ///      the name or its subnames after a sale. Skips mint/burn (registration
     ///      sets the registry owner itself) and is a no-op if not live.
     ///      A transfer not made by a controller first calls `namePolicy`, which
-    ///      reverts for a listed name whose recipient has not accepted the current
-    ///      terms.
+    ///      reverts unless the recipient has accepted the current terms for the
+    ///      name.
     function _beforeTokenTransfer(
         address from,
         address to,

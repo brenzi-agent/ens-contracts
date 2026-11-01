@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
+  commitUnderGeneralTerms,
   deployNamesV2,
   registerWithCredit,
   registration,
@@ -37,9 +38,7 @@ const load = () => connection.networkHelpers.loadFixture(fixture)
 
 async function sponsoredRegister(controller: any, label: string) {
   const reg = registration(label, alice.address)
-  await controller.write.commit([await controller.read.makeCommitment([reg])], {
-    account: registrar,
-  })
+  await commitUnderGeneralTerms(connection, controller, reg, { account: alice })
   const sponsor = await sponsorOf(connection, controller)
   return registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
@@ -84,10 +83,9 @@ describe('the sponsored path does not depend on the price feed', () => {
     const { controller, dummyOracle } = await load()
     await dummyOracle.write.set([0n])
     const reg = registration('payablefeed', alice.address)
-    await controller.write.commit(
-      [await controller.read.makeCommitment([reg])],
-      { account: alice },
-    )
+    await commitUnderGeneralTerms(connection, controller, reg, {
+      account: alice,
+    })
     // the error is declared on StablePriceOracle, so it is not in the
     // controller's ABI for the matcher to name — assert the revert bubbles up
     await expect(
@@ -136,10 +134,9 @@ describe('the sponsored path does not depend on the price feed', () => {
   it('the payable path still reports a real wei cost', async () => {
     const { controller } = await load()
     const reg = registration('paidcost', alice.address)
-    await controller.write.commit(
-      [await controller.read.makeCommitment([reg])],
-      { account: alice },
-    )
+    await commitUnderGeneralTerms(connection, controller, reg, {
+      account: alice,
+    })
     const hash = await controller.write.register([reg], {
       account: alice,
       value: 3n * yearPriceUSD(8),

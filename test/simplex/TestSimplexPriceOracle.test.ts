@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
+  commitUnderGeneralTerms,
   deployNamesV2,
   registerWithCredit,
   registration,
@@ -432,12 +433,9 @@ describe('SimplexPriceOracle', () => {
 
     const register = async (controller: any, name: string, value: bigint) => {
       const reg = registration(name, alice.address)
-      await controller.write.commit(
-        [await controller.read.makeCommitment([reg])],
-        {
-          account: alice,
-        },
-      )
+      await commitUnderGeneralTerms(connection, controller, reg, {
+        account: alice,
+      })
       return controller.write.register([reg], { account: alice, value })
     }
 
@@ -474,10 +472,7 @@ describe('SimplexPriceOracle', () => {
       // drop to five characters, the only length priced at $8
       await controller.write.setMinCharLength([5], { account: owner })
       const reg = registration('spons', alice.address)
-      await controller.write.commit(
-        [await controller.read.makeCommitment([reg])],
-        { account: registrar },
-      )
+      await commitUnderGeneralTerms(connection, controller, reg, { account: alice })
       await registerWithCredit(connection, sponsor, reg, { account: registrar })
       expect(
         await sponsor.read.registrarAllowance([registrar.address]),

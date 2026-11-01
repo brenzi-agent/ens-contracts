@@ -3,7 +3,9 @@ import { encodePacked, keccak256, labelhash, namehash, zeroAddress } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForClaim,
   AMPLE_ALLOWANCE,
+  commitUnderGeneralTerms,
   deployNamesV2,
   node,
   registerWithCredit,
@@ -46,10 +48,7 @@ async function fixture() {
     { account: guardian },
   )
   const reg = registration(NAME, seller.address, { resolver: f.resolver.address })
-  await f.controller.write.commit(
-    [await f.controller.read.makeCommitment([reg])],
-    { account: registrar },
-  )
+  await commitUnderGeneralTerms(connection, f.controller, reg, { account: seller })
   await registerWithCredit(connection, f.sponsor, reg, { account: registrar })
   return f
 }
@@ -82,6 +81,9 @@ describe('shadow subnames (H2)', () => {
     await baseRegistrar.write.approve([buyer.address, TOKEN], {
       account: seller,
     })
+    await acceptGeneralTermsForClaim(connection, baseRegistrar, TOKEN, seller.address, {
+      account: buyer,
+    })
     await baseRegistrar.write.transferFrom(
       [seller.address, buyer.address, TOKEN],
       { account: buyer },
@@ -103,6 +105,9 @@ describe('shadow subnames (H2)', () => {
     })
     await baseRegistrar.write.approve([buyer.address, TOKEN], {
       account: seller,
+    })
+    await acceptGeneralTermsForClaim(connection, baseRegistrar, TOKEN, seller.address, {
+      account: buyer,
     })
     await baseRegistrar.write.transferFrom(
       [seller.address, buyer.address, TOKEN],
@@ -147,6 +152,9 @@ describe('shadow subnames (H2)', () => {
 
     await baseRegistrar.write.approve([buyer.address, TOKEN], {
       account: seller,
+    })
+    await acceptGeneralTermsForClaim(connection, baseRegistrar, TOKEN, seller.address, {
+      account: buyer,
     })
     await baseRegistrar.write.transferFrom(
       [seller.address, buyer.address, TOKEN],

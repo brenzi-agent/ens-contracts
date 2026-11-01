@@ -10,11 +10,16 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import {
+  commitUnderGeneralTerms,
+  COMMUNITY_TERMS_LINK,
   FAR_FUTURE,
+  GENERAL_TERMS,
+  GENERAL_TERMS_LINK,
   MIN_REGISTRATION,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
   registerWithCredit,
+  signGeneralTermsAcceptance,
   signIntent,
   signRegistration,
   YEAR,
@@ -90,12 +95,15 @@ async function commitAndRegister(
   account: any,
   opts: { credit?: boolean; value?: bigint } = {},
 ) {
-  await controller.write.commit([await controller.read.makeCommitment([reg])], {
-    account,
-  })
-  return opts.credit
-    ? registerWithCredit(connection, sponsor, reg, { account })
-    : controller.write.register([reg], { account, value: opts.value ?? 0n })
+  if (opts.credit) {
+    await namePolicy.write.commitUnderGeneralTermsWithSig(
+      await signGeneralTermsAcceptance(connection, controller, reg),
+      { account },
+    )
+    return registerWithCredit(connection, sponsor, reg, { account })
+  }
+  await commitUnderGeneralTerms(connection, controller, reg, { account })
+  return controller.write.register([reg], { account, value: opts.value ?? 0n })
 }
 
 function registration(label: string, owner: `0x${string}`, extra: any = {}) {
@@ -206,6 +214,8 @@ describe('launch lifecycle', () => {
       await controller.write.setSponsor([sponsor.address])
       await baseRegistrar.write.addController([namePolicy.address])
       await controller.write.setNamePolicy([namePolicy.address])
+      await namePolicy.write.setGeneralTerms([GENERAL_TERMS_LINK])
+      await namePolicy.write.setCommunityTerms([COMMUNITY_TERMS_LINK])
       await baseRegistrar.write.setNamePolicy([namePolicy.address])
 
       expect(await baseRegistrar.read.maxLabelLength()).toBe(63n)
@@ -226,6 +236,10 @@ describe('launch lifecycle', () => {
       )
       expect((await baseRegistrar.read.namePolicy()).toLowerCase()).toBe(
         namePolicy.address.toLowerCase(),
+      )
+      expect(await namePolicy.read.generalTermsLink()).toBe(GENERAL_TERMS_LINK)
+      expect(await namePolicy.read.communityTermsLink()).toBe(
+        COMMUNITY_TERMS_LINK,
       )
     })
 
@@ -702,6 +716,34 @@ describe('launch lifecycle', () => {
         nonce: 0n,
         deadline: FAR_FUTURE,
       }
+      const a = {
+        tokenId,
+        from: alice.address,
+        offer: c.offer,
+        termsHash: GENERAL_TERMS,
+        nonce: await namePolicy.read.nonces([bob.address]),
+        deadline: FAR_FUTURE,
+      }
+      await namePolicy.write.acceptGeneralTermsForClaimWithSig(
+        [
+          a.tokenId,
+          a.from,
+          a.offer,
+          a.termsHash,
+          bob.address,
+          a.nonce,
+          a.deadline,
+          await signIntent(
+            publicClient,
+            bobClient,
+            'SimplexNamePolicy',
+            namePolicy.address,
+            'AcceptGeneralTermsForClaim',
+            a,
+          ),
+        ],
+        { account: registrar },
+      )
       await baseRegistrar.write.claimWithSig(
         [
           c.from,
@@ -819,10 +861,7 @@ describe('launch lifecycle', () => {
       const reg = registration('freshname', buyer.address, {
         resolver: resolver.address,
       })
-      await controller.write.commit(
-        [await controller.read.makeCommitment([reg])],
-        { account: buyer },
-      )
+      await commitUnderGeneralTerms(connection, controller, reg, { account: buyer })
       const before = await publicClient.getBalance({ address: buyer.address })
       const hash = await controller.write.register([reg], {
         account: buyer,
@@ -843,10 +882,9 @@ describe('launch lifecycle', () => {
 
     it('a released name is now buyable, a reserved one still is not', async () => {
       const released = registration('brand2999', buyer.address)
-      await controller.write.commit(
-        [await controller.read.makeCommitment([released])],
-        { account: buyer },
-      )
+      await commitUnderGeneralTerms(connection, controller, released, {
+        account: buyer,
+      })
       await controller.write.register([released], {
         account: buyer,
         value: 2n * yearPriceUSD(6),

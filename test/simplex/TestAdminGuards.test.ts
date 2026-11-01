@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
+  commitUnderGeneralTerms,
   deployNamesV2,
   node,
   registerWithCredit,
@@ -34,10 +35,7 @@ async function fixture() {
     { account: guardian },
   )
   const reg = registration(NAME, alice.address, { resolver: f.resolver.address })
-  await f.controller.write.commit(
-    [await f.controller.read.makeCommitment([reg])],
-    { account: registrar },
-  )
+  await commitUnderGeneralTerms(connection, f.controller, reg, { account: alice })
   await registerWithCredit(connection, f.sponsor, reg, { account: registrar })
   return f
 }

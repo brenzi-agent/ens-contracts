@@ -610,7 +610,7 @@ contract SimplexController is
     }
 
     function _sponsoredHorizon(bytes32 labelhash) private view returns (uint256) {
-        return INamePolicy(namePolicy).bonaFideNames(labelhash)
+        return INamePolicy(namePolicy).communityNames(labelhash)
             ? MAX_REGISTRATION_DURATION
             : MAX_SPONSORED_REGISTRATION_DURATION;
     }
