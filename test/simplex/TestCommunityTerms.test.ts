@@ -936,7 +936,7 @@ describe('community names', () => {
         await f.namePolicy.read.acceptedRenewalTerms([
           COMMUNITY_ID,
           alice.address,
-          YEAR,
+          before + YEAR,
         ]),
       ).toBe(zeroHash)
       await expect(
@@ -968,6 +968,37 @@ describe('community names', () => {
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
       await acceptForRenewal(f.namePolicy, alice)
       await renewAs(f.controller, alice)
+    })
+
+    it('an acceptance is valid only for the term it was made in', async () => {
+      const f = await load()
+      await acceptAndRegister(f, GENERAL)
+      await acceptForRenewal(f.namePolicy, alice, { k: GENERAL })
+      await acceptForRenewal(f.namePolicy, alice, {
+        k: GENERAL,
+        duration: 2n * YEAR,
+      })
+      await f.sponsor.write.renewWithCredit(
+        [GENERAL.label, 2n * YEAR, zeroHash, alice.address],
+        { account: registrar },
+      )
+      await expect(
+        renewOnCredit(f.sponsor, alice.address, GENERAL),
+      ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
+    })
+
+    it('the registrar cannot renew for the holder without the acceptance of that renewal', async () => {
+      const f = await load()
+      await acceptAndRegister(f)
+      await expect(
+        renewOnCredit(f.sponsor, alice.address),
+      ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
+      await acceptForRenewal(f.namePolicy, alice, { duration: YEAR + DAY })
+      await expect(
+        renewOnCredit(f.sponsor, alice.address),
+      ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
+      await acceptForRenewal(f.namePolicy, alice)
+      await renewOnCredit(f.sponsor, alice.address)
     })
 
     it('new terms between acceptance and renewal require a new acceptance', async () => {
