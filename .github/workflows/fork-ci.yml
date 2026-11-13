@@ -10,17 +10,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
         with:
-          bun-version: 1.2.3
+          version: 9
 
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+          cache: pnpm
 
-      - run: bun install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
-      - run: bun run compile
+      - run: pnpm exec hardhat compile
 
       - name: Contract sizes
         run: |
@@ -28,6 +29,6 @@ jobs:
             node -e 'const a=require(process.argv[1]); console.log(process.argv[2], (a.deployedBytecode.length-2)/2)' "./artifacts/contracts/$c.sol/$(basename $c).json" "$(basename $c)"
           done
 
-      - run: bunx vitest run test/simplex
+      - run: pnpm exec vitest run test/simplex
         env:
           NODE_OPTIONS: --disable-warning=ExperimentalWarning
