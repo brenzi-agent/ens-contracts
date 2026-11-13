@@ -1,0 +1,33 @@
+name: Fork CI
+
+on:
+  push:
+    branches: ['ci/**']
+
+jobs:
+  simplex:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.3
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run compile
+
+      - name: Contract sizes
+        run: |
+          for c in simplex/SimplexController simplex/SimplexNamePolicy simplex/SimplexSponsor ethregistrar/BaseRegistrarImplementation; do
+            node -e 'const a=require(process.argv[1]); console.log(process.argv[2], (a.deployedBytecode.length-2)/2)' "./artifacts/contracts/$c.sol/$(basename $c).json" "$(basename $c)"
+          done
+
+      - run: bunx vitest run test/simplex
+        env:
+          NODE_OPTIONS: --disable-warning=ExperimentalWarning
