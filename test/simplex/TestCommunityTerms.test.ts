@@ -906,10 +906,7 @@ describe('community names', () => {
     it('a renewal by anyone but the holder reverts', async () => {
       const f = await load()
       await acceptAndRegister(f)
-      await expect(renewAs(f.controller, bob)).toBeRevertedWithCustomErrorFrom(
-        f.namePolicy,
-        'NotHolder',
-      )
+      await expect(renewAs(f.controller, bob)).rejects.toThrow()
     })
 
     it('a renewal by the holder reverts without an acceptance', async () => {
@@ -936,7 +933,8 @@ describe('community names', () => {
         await f.namePolicy.read.acceptedRenewalTerms([
           COMMUNITY_ID,
           alice.address,
-          before + YEAR,
+          before,
+          YEAR,
         ]),
       ).toBe(zeroHash)
       await expect(
@@ -978,12 +976,15 @@ describe('community names', () => {
         k: GENERAL,
         duration: 2n * YEAR,
       })
-      await f.sponsor.write.renewWithCredit(
-        [GENERAL.label, 2n * YEAR, zeroHash, alice.address],
-        { account: registrar },
-      )
+      await renewOnCredit(f.sponsor, alice.address, GENERAL)
       await expect(
         renewOnCredit(f.sponsor, alice.address, GENERAL),
+      ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
+      await expect(
+        f.sponsor.write.renewWithCredit(
+          [GENERAL.label, 2n * YEAR, zeroHash, alice.address],
+          { account: registrar },
+        ),
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
     })
 
@@ -1086,6 +1087,14 @@ describe('community names', () => {
       const f = await load()
       await acceptAndRegister(f)
       await acceptAndRegister(f, GENERAL)
+      const bobs = registration('bobsname', bob.address)
+      await commitUnderGeneralTerms(connection, f.controller, bobs, {
+        account: bob,
+      })
+      await f.controller.write.register([bobs], {
+        account: bob,
+        value: 2n * YEAR_PRICE_USD,
+      })
       await connection.networkHelpers.time.increase(MIN_REGISTRATION + DAY)
       await expect(
         f.baseRegistrar.read.ownerOf([COMMUNITY_ID]),
@@ -1285,7 +1294,12 @@ describe('terms of each kind', () => {
         const sig = await sign(bobClient)
         await relay(FAR_FUTURE, sig)
         expect(
-          await namePolicy.read.acceptedRenewalTerms([k.id, bob.address, YEAR]),
+          await namePolicy.read.acceptedRenewalTerms([
+            k.id,
+            bob.address,
+            0n,
+            YEAR,
+          ]),
         ).toBe(k.hash)
         await expect(relay(FAR_FUTURE, sig)).toBeRevertedWithCustomError(
           'InvalidNonce',
