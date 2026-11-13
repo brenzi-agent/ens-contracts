@@ -3,6 +3,7 @@ import { labelhash, zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
@@ -33,11 +34,15 @@ async function fixture() {
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
-const renewBrandname = (controller: any) =>
-  controller.write.renew(['brandname', YEAR, zeroHash], {
+const renewBrandname = async (controller: any) => {
+  await acceptGeneralTermsForRenewal(connection, controller, 'brandname', YEAR, {
+    account: brand,
+  })
+  return controller.write.renew(['brandname', YEAR, zeroHash], {
     account: brand,
     value: YEAR_PRICE_USD,
   })
+}
 
 /**
  * `registerReserved` is how a brand receives its name. `setSubnodeOwner` alone
@@ -237,7 +242,9 @@ describe('a disputed name', () => {
       account: guardian,
     })
     await expect(
-      sponsor.write.renewWithCredit(['brandname', YEAR, zeroHash], { account: registrar }),
+      sponsor.write.renewWithCredit(['brandname', YEAR, zeroHash, brand.address], {
+        account: registrar,
+      }),
     ).toBeRevertedWithCustomErrorFrom(controller, 'NameReserved')
   })
 

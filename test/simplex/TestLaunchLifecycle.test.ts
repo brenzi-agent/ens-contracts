@@ -10,6 +10,7 @@ import {
 import { beforeAll, describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   commitUnderGeneralTerms,
   COMMUNITY_TERMS_LINK,
   FAR_FUTURE,
@@ -20,6 +21,7 @@ import {
   PRICE_EXCEPTIONS,
   registerWithCredit,
   signGeneralTermsAcceptance,
+  signGeneralTermsForRenewal,
   signIntent,
   signRegistration,
   YEAR,
@@ -541,7 +543,17 @@ describe('launch lifecycle', () => {
       const allowanceBefore = await sponsor.read.registrarAllowance([
         registrar.address,
       ])
-      await sponsor.write.renewWithCredit([OWNED, YEAR, zeroHash], {
+      await namePolicy.write.acceptGeneralTermsForRenewalWithSig(
+        await signGeneralTermsForRenewal(
+          connection,
+          controller,
+          OWNED,
+          YEAR,
+          alice.address,
+        ),
+        { account: registrar },
+      )
+      await sponsor.write.renewWithCredit([OWNED, YEAR, zeroHash, alice.address], {
         account: registrar,
       })
       expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)
@@ -903,13 +915,29 @@ describe('launch lifecycle', () => {
       ).toBeRevertedWithCustomErrorFrom(namePolicy, 'NameReserved')
     })
 
-    it('anyone may renew anyone name — renewal is unauthenticated by design', async () => {
+    it('only the holder renews, after accepting the terms again', async () => {
       const tokenId = BigInt(labelhash('freshname'))
       const before = await baseRegistrar.read.nameExpires([tokenId])
-      await controller.write.renew(['freshname', YEAR, zeroHash], {
+      const renew = (account: any) =>
+        controller.write.renew(['freshname', YEAR, zeroHash], {
+          account,
+          value: 2n * yearPriceUSD(6),
+        })
+      await acceptGeneralTermsForRenewal(connection, controller, 'freshname', YEAR, {
         account: bob,
-        value: 2n * yearPriceUSD(6),
       })
+      await expect(renew(bob)).toBeRevertedWithCustomErrorFrom(
+        namePolicy,
+        'NotHolder',
+      )
+      await expect(renew(buyer)).toBeRevertedWithCustomErrorFrom(
+        namePolicy,
+        'TermsNotAccepted',
+      )
+      await acceptGeneralTermsForRenewal(connection, controller, 'freshname', YEAR, {
+        account: buyer,
+      })
+      await renew(buyer)
       expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)
     })
 

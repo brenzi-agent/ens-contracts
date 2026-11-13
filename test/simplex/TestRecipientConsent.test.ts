@@ -236,7 +236,7 @@ describe('recipient consent', () => {
       ).toBeRevertedWithCustomError('NotSponsor')
       await expect(
         controller.write.renewSponsored(
-          ['alicename', MIN_REGISTRATION, zeroHash],
+          ['alicename', MIN_REGISTRATION, zeroHash, alice.address],
           { account: registrar },
         ),
       ).toBeRevertedWithCustomError('NotSponsor')

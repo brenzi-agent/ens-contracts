@@ -3,6 +3,7 @@ import { labelhash, zeroAddress as zeroAddressLocal, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
@@ -232,7 +233,10 @@ describe('renewal and availability semantics', () => {
     await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + 1n))
 
     const before = await sponsor.read.registrarAllowance([registrar.address])
-    await sponsor.write.renewWithCredit(['renewprem', YEAR, zeroHash], {
+    await acceptGeneralTermsForRenewal(connection, controller, 'renewprem', YEAR, {
+      account: victim,
+    })
+    await sponsor.write.renewWithCredit(['renewprem', YEAR, zeroHash, victim.address], {
       account: registrar,
     })
     const spent =
