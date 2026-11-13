@@ -1,6 +1,8 @@
 import hre from 'hardhat'
 import {
+  concat,
   getAddress,
+  keccak256,
   labelhash,
   pad,
   size,
@@ -11,6 +13,7 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   commitUnderGeneralTerms,
   COMMUNITY_TERMS,
   COMMUNITY_TERMS_LINK,
@@ -229,6 +232,24 @@ describe('name policy', () => {
       expect(await slot(107)).toBe(longString(GENERAL_TERMS_LINK))
       expect(await slot(108)).toBe(GENERAL_TERMS)
     })
+
+    it('renewal acceptances take slot 109 of the proxy', async () => {
+      const { namePolicy } = await load()
+      const id = BigInt(labelhash('heldname'))
+      await namePolicy.write.acceptGeneralTermsForRenewal(
+        [id, YEAR, GENERAL_TERMS],
+        { account: alice },
+      )
+      const entry = (key: `0x${string}`, slot: `0x${string}`) =>
+        keccak256(concat([key, slot]))
+      const slot = entry(
+        pad(toHex(YEAR)),
+        entry(pad(alice.address), entry(pad(toHex(id)), pad(toHex(109)))),
+      )
+      expect(
+        await publicClient.getStorageAt({ address: namePolicy.address, slot }),
+      ).toBe(GENERAL_TERMS)
+    })
   })
 
   describe('registerReserved', () => {
@@ -343,9 +364,16 @@ describe('name policy', () => {
         })
       await expect(renew()).toBeRevertedWithCustomError('NameReserved')
 
-      const other = await policyWithNoReservations(f)
+      const other = await connection.viem.getContractAt(
+        'SimplexNamePolicy',
+        (await policyWithNoReservations(f)).address,
+      )
+      await other.write.setGeneralTerms([GENERAL_TERMS_LINK], { account: owner })
       await f.controller.write.setNamePolicy([other.address], {
         account: owner,
+      })
+      await acceptGeneralTermsForRenewal(connection, f.controller, 'heldname', YEAR, {
+        account: alice,
       })
       await renew()
     })

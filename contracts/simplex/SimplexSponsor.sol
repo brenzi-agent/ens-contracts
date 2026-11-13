@@ -91,13 +91,14 @@ contract SimplexSponsor {
     function renewWithCredit(
         string calldata label,
         uint256 duration,
-        bytes32 referrer
+        bytes32 referrer,
+        address holder
     ) external {
         // Base only, matching the payable `renew`, which charges `price.base`.
         // The premium is the expired-name auction price and is owed on
         // re-registration, never on renewing a name you already hold.
         _spendAllowance(controller.rentPriceUSD(label, duration).base);
-        controller.renewSponsored(label, duration, referrer);
+        controller.renewSponsored(label, duration, referrer, holder);
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {

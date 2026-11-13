@@ -3,6 +3,7 @@ import { labelhash, parseEventLogs, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
@@ -63,7 +64,10 @@ describe('the sponsored path does not depend on the price feed', () => {
 
     const tokenId = BigInt(labelhash('deadfeed'))
     const before = await baseRegistrar.read.nameExpires([tokenId])
-    await sponsor.write.renewWithCredit(['deadfeed', YEAR, zeroHash], {
+    await acceptGeneralTermsForRenewal(connection, controller, 'deadfeed', YEAR, {
+      account: alice,
+    })
+    await sponsor.write.renewWithCredit(['deadfeed', YEAR, zeroHash, alice.address], {
       account: registrar,
     })
     expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)
@@ -118,8 +122,11 @@ describe('the sponsored path does not depend on the price feed', () => {
   it('credited renewal emits a zero cost too', async () => {
     const { controller, sponsor } = await load()
     await sponsoredRegister(controller, 'renewevent')
+    await acceptGeneralTermsForRenewal(connection, controller, 'renewevent', YEAR, {
+      account: alice,
+    })
     const hash = await sponsor.write.renewWithCredit(
-      ['renewevent', YEAR, zeroHash],
+      ['renewevent', YEAR, zeroHash, alice.address],
       { account: registrar },
     )
     const receipt = await publicClient.getTransactionReceipt({ hash })
