@@ -244,7 +244,10 @@ describe('name policy', () => {
         keccak256(concat([key, slot]))
       const slot = entry(
         pad(toHex(YEAR)),
-        entry(pad(alice.address), entry(pad(toHex(id)), pad(toHex(109)))),
+        entry(
+          pad(toHex(0)),
+          entry(pad(alice.address), entry(pad(toHex(id)), pad(toHex(109)))),
+        ),
       )
       expect(
         await publicClient.getStorageAt({ address: namePolicy.address, slot }),
