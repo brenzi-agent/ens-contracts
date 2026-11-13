@@ -511,8 +511,9 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         if (address(this) == _self) revert NotProxy();
         uint256 tokenId = uint256(labelhash);
         if (!_holds(holder, tokenId)) revert NotHolder(label);
-        bytes32 accepted = acceptedRenewalTerms[tokenId][holder][duration];
-        delete acceptedRenewalTerms[tokenId][holder][duration];
+        uint256 renewedExpiry = registrar.nameExpires(tokenId) + duration;
+        bytes32 accepted = acceptedRenewalTerms[tokenId][holder][renewedExpiry];
+        delete acceptedRenewalTerms[tokenId][holder][renewedExpiry];
         _confirmAcceptance(_names[labelhash].community, accepted, label, holder);
     }
 
@@ -572,13 +573,17 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     ) private {
         if (!_isCurrentTerms(acceptedTermsHash, currentTermsHash))
             revert TermsMismatch(acceptedTermsHash, currentTermsHash);
-        acceptedRenewalTerms[tokenId][holder][duration] = acceptedTermsHash;
+        acceptedRenewalTerms[tokenId][holder][
+            registrar.nameExpires(tokenId) + duration
+        ] = acceptedTermsHash;
     }
 
     function _holds(
         address account,
         uint256 tokenId
     ) private view returns (bool) {
+        if (registrar.nameExpires(tokenId) > block.timestamp)
+            return registrar.ownerOf(tokenId) == account;
         uint256 balance = registrar.balanceOf(account);
         for (uint256 i = 0; i < balance; ++i)
             if (registrar.tokenOfOwnerByIndex(account, i) == tokenId)
