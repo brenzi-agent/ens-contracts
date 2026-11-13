@@ -1101,19 +1101,25 @@ describe('community names', () => {
       ])
     })
 
-    it('a signed acceptance relayed after the expiry changed renews nothing', async () => {
+    it('an acceptance names the current expiry, so a signed one relayed after a renewal reverts', async () => {
       const f = await load()
       await acceptAndRegister(f)
       const expires = await f.baseRegistrar.read.nameExpires([COMMUNITY_ID])
+      await expect(
+        acceptForRenewal(f.namePolicy, alice, { expires: expires + YEAR }),
+      ).toBeRevertedWithCustomError('ExpiryMismatch')
       const sig = await signRenewalAcceptance(f.namePolicy, aliceClient, {
         expires,
       })
       await acceptRenewal(f, alice)
       await renewAs(f.controller, alice)
-      await f.namePolicy.write.acceptCommunityTermsForRenewalWithSig(
-        [COMMUNITY_ID, expires, YEAR, TERMS, alice.address, 0n, FAR_FUTURE, sig],
-        { account: registrar },
-      )
+      await expect(
+        f.namePolicy.write.acceptCommunityTermsForRenewalWithSig(
+          [COMMUNITY_ID, expires, YEAR, TERMS, alice.address, 0n, FAR_FUTURE, sig],
+          { account: registrar },
+        ),
+      ).toBeRevertedWithCustomError('ExpiryMismatch')
+      expect(await f.namePolicy.read.nonces([alice.address])).toBe(0n)
       await expect(
         renewOnCredit(f.sponsor, alice.address),
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
