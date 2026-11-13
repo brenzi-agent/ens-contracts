@@ -535,15 +535,12 @@ describe('community names', () => {
     it('the sponsor renews a listed name up to three years out, not further', async () => {
       const f = await load()
       await acceptAndRegister(f)
-      const renew = async () => {
-        await acceptForRenewal(f.namePolicy, alice)
-        return renewOnCredit(f.sponsor, alice.address)
-      }
-      await renew()
-      await expect(renew()).toBeRevertedWithCustomErrorFrom(
-        f.controller,
-        'DurationTooLong',
-      )
+      await acceptForRenewal(f.namePolicy, alice)
+      await renewOnCredit(f.sponsor, alice.address)
+      await acceptForRenewal(f.namePolicy, alice)
+      await expect(
+        renewOnCredit(f.sponsor, alice.address),
+      ).toBeRevertedWithCustomErrorFrom(f.controller, 'DurationTooLong')
     })
 
     it('registerReserved registers a listed name for three years, not a second more', async () => {
