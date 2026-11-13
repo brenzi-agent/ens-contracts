@@ -98,6 +98,7 @@ contract SimplexNamePolicy is INamePolicy {
     error TermsMismatch(bytes32 accepted, bytes32 current);
     error TermsNotAccepted(string name);
     error NotHolder(string name);
+    error ExpiryMismatch(uint256 named, uint256 current);
     error SignatureExpired();
     error InvalidNonce();
     error InvalidSignature();
@@ -577,6 +578,8 @@ contract SimplexNamePolicy is INamePolicy {
     ) private {
         if (!_isCurrentTerms(acceptedTermsHash, currentTermsHash))
             revert TermsMismatch(acceptedTermsHash, currentTermsHash);
+        uint256 currentExpires = registrar.nameExpires(tokenId);
+        if (expires != currentExpires) revert ExpiryMismatch(expires, currentExpires);
         acceptedRenewalTerms[tokenId][holder][expires][duration] = acceptedTermsHash;
     }
 
