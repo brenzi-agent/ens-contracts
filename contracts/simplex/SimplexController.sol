@@ -590,7 +590,7 @@ contract SimplexController is
         IPriceOracle.Price memory price = _rentPrice(label, labelhash, duration);
         if (msg.value < price.base) revert InsufficientValue();
 
-        _renewCore(label, labelhash, duration, price.base, referrer, MAX_REGISTRATION_DURATION);
+        _renewCore(label, labelhash, duration, price.base, referrer, MAX_REGISTRATION_DURATION, msg.sender);
 
         if (msg.value > price.base) {
             (bool ok, ) = payable(msg.sender).call{value: msg.value - price.base}("");
@@ -602,11 +602,12 @@ contract SimplexController is
     function renewSponsored(
         string calldata label,
         uint256 duration,
-        bytes32 referrer
+        bytes32 referrer,
+        address holder
     ) external onlySponsor nonReentrant {
         bytes32 labelhash = keccak256(bytes(label));
         // zero cost, and no feed read — see `registerSponsored`
-        _renewCore(label, labelhash, duration, 0, referrer, _sponsoredHorizon(labelhash));
+        _renewCore(label, labelhash, duration, 0, referrer, _sponsoredHorizon(labelhash), holder);
     }
 
     function _sponsoredHorizon(bytes32 labelhash) private view returns (uint256) {
@@ -621,11 +622,13 @@ contract SimplexController is
         uint256 duration,
         uint256 cost,
         bytes32 referrer,
-        uint256 horizon
+        uint256 horizon,
+        address holder
     ) private returns (uint256 expires) {
         if (duration < MIN_RENEWAL_DURATION) revert DurationTooShort(duration);
         if (INamePolicy(namePolicy).isReserved(labelhash))
             revert NameReserved(label);
+        INamePolicy(namePolicy).consumeRenewal(label, labelhash, duration, holder);
 
         expires = base.renew(uint256(labelhash), duration);
         if (expires > block.timestamp + horizon) revert DurationTooLong(duration);

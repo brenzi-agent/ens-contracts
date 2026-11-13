@@ -314,6 +314,20 @@ export const eip712Types = {
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
+  AcceptGeneralTermsForRenewal: [
+    { name: 'tokenId', type: 'uint256' },
+    { name: 'duration', type: 'uint256' },
+    { name: 'termsHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+  AcceptCommunityTermsForRenewal: [
+    { name: 'tokenId', type: 'uint256' },
+    { name: 'duration', type: 'uint256' },
+    { name: 'termsHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
 } as const
 
 export const FAR_FUTURE = 4102444800n
@@ -473,6 +487,53 @@ export async function acceptGeneralTermsForClaim(
     [tokenId, from, await baseRegistrar.read.offers([tokenId]), GENERAL_TERMS],
     options,
   )
+}
+
+export async function acceptGeneralTermsForRenewal(
+  connection: NetworkConnection,
+  controller: any,
+  label: string,
+  duration: bigint,
+  options: { account: any },
+) {
+  const namePolicy = await connection.viem.getContractAt(
+    'SimplexNamePolicy',
+    await controller.read.namePolicy(),
+  )
+  return namePolicy.write.acceptGeneralTermsForRenewal(
+    [BigInt(labelhash(label)), duration, GENERAL_TERMS],
+    options,
+  )
+}
+
+export async function signGeneralTermsForRenewal(
+  connection: NetworkConnection,
+  controller: any,
+  label: string,
+  duration: bigint,
+  holder: `0x${string}`,
+): Promise<
+  [bigint, bigint, `0x${string}`, `0x${string}`, bigint, bigint, `0x${string}`]
+> {
+  const namePolicy = await connection.viem.getContractAt(
+    'SimplexNamePolicy',
+    await controller.read.namePolicy(),
+  )
+  const client = (await connection.viem.getWalletClients()).find(
+    (c) => c.account.address.toLowerCase() === holder.toLowerCase(),
+  )
+  if (!client) throw new Error(`no wallet client for ${holder}`)
+  const tokenId = BigInt(labelhash(label))
+  const nonce: bigint = await namePolicy.read.nonces([holder])
+  const sig = await signIntent(
+    await connection.viem.getPublicClient(),
+    client,
+    'SimplexNamePolicy',
+    namePolicy.address,
+    'AcceptGeneralTermsForRenewal',
+    { tokenId, duration, termsHash: GENERAL_TERMS, nonce, deadline: FAR_FUTURE },
+  )
+  return [tokenId, duration, GENERAL_TERMS, holder, nonce, FAR_FUTURE, sig]
 }
 
 /** Enough allowance that a test never has to think about it: $1000. */

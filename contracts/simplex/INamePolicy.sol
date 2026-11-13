@@ -20,6 +20,13 @@ interface INamePolicy {
         uint256 offer,
         string calldata label
     ) external;
+
+    function consumeRenewal(
+        string calldata label,
+        bytes32 labelhash,
+        uint256 duration,
+        address holder
+    ) external;
 }
 
 interface INamePolicyBinding {

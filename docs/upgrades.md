@@ -136,8 +136,9 @@ reverts `ImplementationMismatch` unless the new implementation's immutable
 `controller()` and `registrar()` equal the current ones. Its own variables are
 `_names` (each name's community flag and reservation reason, in one slot),
 `communityTermsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`,
-`communityTermsLink`, `generalTermsLink`, `generalTermsHash`, then
-`uint256[42] __gap`; the invariants above apply to it unchanged.
+`communityTermsLink`, `generalTermsLink`, `generalTermsHash`,
+`acceptedRenewalTerms`, then `uint256[41] __gap`; the invariants above apply to
+it unchanged.
 
 The policy compiles in the controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` and
 `MAX_SPONSORED_REGISTRATION`, and reads the controller's `ens` and `tldNode` once,
