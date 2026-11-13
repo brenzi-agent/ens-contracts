@@ -511,9 +511,9 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         if (address(this) == _self) revert NotProxy();
         uint256 tokenId = uint256(labelhash);
         if (!_holds(holder, tokenId)) revert NotHolder(label);
-        uint256 renewedExpiry = registrar.nameExpires(tokenId) + duration;
-        bytes32 accepted = acceptedRenewalTerms[tokenId][holder][renewedExpiry];
-        delete acceptedRenewalTerms[tokenId][holder][renewedExpiry];
+        uint256 expires = registrar.nameExpires(tokenId);
+        bytes32 accepted = acceptedRenewalTerms[tokenId][holder][expires][duration];
+        delete acceptedRenewalTerms[tokenId][holder][expires][duration];
         _confirmAcceptance(_names[labelhash].community, accepted, label, holder);
     }
 
@@ -573,8 +573,8 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     ) private {
         if (!_isCurrentTerms(acceptedTermsHash, currentTermsHash))
             revert TermsMismatch(acceptedTermsHash, currentTermsHash);
-        acceptedRenewalTerms[tokenId][holder][
-            registrar.nameExpires(tokenId) + duration
+        acceptedRenewalTerms[tokenId][holder][registrar.nameExpires(tokenId)][
+            duration
         ] = acceptedTermsHash;
     }
 
@@ -646,7 +646,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     string public communityTermsLink;
     string public generalTermsLink;
     bytes32 public generalTermsHash;
-    mapping(uint256 => mapping(address => mapping(uint256 => bytes32)))
+    mapping(uint256 => mapping(address => mapping(uint256 => mapping(uint256 => bytes32))))
         public acceptedRenewalTerms;
     uint256[41] private __gap;
 }
