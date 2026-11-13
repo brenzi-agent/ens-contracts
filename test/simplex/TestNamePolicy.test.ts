@@ -237,7 +237,7 @@ describe('name policy', () => {
       const { namePolicy } = await load()
       const id = BigInt(labelhash('heldname'))
       await namePolicy.write.acceptGeneralTermsForRenewal(
-        [id, YEAR, GENERAL_TERMS],
+        [id, 0n, YEAR, GENERAL_TERMS],
         { account: alice },
       )
       const entry = (key: `0x${string}`, slot: `0x${string}`) =>
