@@ -44,21 +44,6 @@ async function sponsoredRegister(controller: any, reg: any) {
   return registerWithCredit(connection, sponsor, reg, { account: registrar })
 }
 
-async function sponsoredRenew(
-  controller: any,
-  sponsor: any,
-  label: string,
-  duration: bigint,
-) {
-  await acceptGeneralTermsForRenewal(connection, controller, label, duration, {
-    account: alice,
-  })
-  return sponsor.write.renewWithCredit(
-    [label, duration, zeroHash, alice.address],
-    { account: registrar },
-  )
-}
-
 /**
  * The registrar is bounded by money, not by a count of operations: registering a
  * name deducts that name's own list price, in attoUSD, which is the unit the
@@ -286,7 +271,12 @@ describe('registrar allowance', () => {
 
     const tokenId = BigInt(labelhash('renewable'))
     const before = await baseRegistrar.read.nameExpires([tokenId])
-    await sponsoredRenew(controller, sponsor, 'renewable', YEAR)
+    await acceptGeneralTermsForRenewal(connection, controller, 'renewable', YEAR, {
+      account: alice,
+    })
+    await sponsor.write.renewWithCredit(['renewable', YEAR, zeroHash, alice.address], {
+      account: registrar,
+    })
 
     expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)
     expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
@@ -328,9 +318,20 @@ describe('registrar allowance', () => {
     )
     await sponsoredRegister(controller, registration('decade', alice.address))
     await passDisputePeriod(connection)
-    await sponsoredRenew(controller, sponsor, 'decade', 9n * YEAR + MIN_DISPUTE_DAYS * DAY)
+    const longest = 9n * YEAR + MIN_DISPUTE_DAYS * DAY
+    await acceptGeneralTermsForRenewal(connection, controller, 'decade', longest, {
+      account: alice,
+    })
+    await sponsor.write.renewWithCredit(['decade', longest, zeroHash, alice.address], {
+      account: registrar,
+    })
+    await acceptGeneralTermsForRenewal(connection, controller, 'decade', YEAR, {
+      account: alice,
+    })
     await expect(
-      sponsoredRenew(controller, sponsor, 'decade', YEAR),
+      sponsor.write.renewWithCredit(['decade', YEAR, zeroHash, alice.address], {
+        account: registrar,
+      }),
     ).toBeRevertedWithCustomErrorFrom(controller, 'DurationTooLong')
   })
 
