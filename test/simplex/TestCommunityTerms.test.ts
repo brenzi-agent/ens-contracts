@@ -205,12 +205,64 @@ const renewAs = (
     value: YEAR_PRICE_USD,
   })
 
+type RenewalAcceptance = Partial<{
+  k: Kind
+  id: bigint
+  hash: `0x${string}`
+  duration: bigint
+  expires: bigint
+}>
+
 const acceptForRenewal = (
   namePolicy: any,
   account: any,
-  { k = COMMUNITY, hash = k.hash, duration = YEAR } = {},
+  {
+    k = COMMUNITY,
+    id = k.id,
+    hash = k.hash,
+    duration = YEAR,
+    expires = 0n,
+  }: RenewalAcceptance = {},
 ): WritePromise =>
-  callPolicy(namePolicy, k.acceptForRenewal, [k.id, duration, hash], account)
+  callPolicy(
+    namePolicy,
+    k.acceptForRenewal,
+    [id, expires, duration, hash],
+    account,
+  )
+
+const acceptRenewal = async (
+  { namePolicy, baseRegistrar }: Fixture,
+  account: any,
+  acceptance: RenewalAcceptance = {},
+) =>
+  acceptForRenewal(namePolicy, account, {
+    ...acceptance,
+    expires: await baseRegistrar.read.nameExpires([
+      acceptance.id ?? (acceptance.k ?? COMMUNITY).id,
+    ]),
+  })
+
+const signRenewalAcceptance = async (
+  namePolicy: any,
+  signer: any,
+  { k = COMMUNITY, expires = 0n, duration = YEAR }: RenewalAcceptance = {},
+) =>
+  signIntent(
+    publicClient,
+    signer,
+    'SimplexNamePolicy',
+    namePolicy.address,
+    k.renewalType,
+    {
+      tokenId: k.id,
+      expires,
+      duration,
+      termsHash: k.hash,
+      nonce: await namePolicy.read.nonces([signer.account.address]),
+      deadline: FAR_FUTURE,
+    },
+  )
 
 const renewOnCredit = (sponsor: any, holder: `0x${string}`, k: Kind = COMMUNITY) =>
   sponsor.write.renewWithCredit([k.label, YEAR, zeroHash, holder], {
@@ -315,7 +367,7 @@ describe('community names', () => {
       ).toBe(
         keccak256(
           toHex(
-            'AcceptGeneralTermsForRenewal(uint256 tokenId,uint256 duration,bytes32 termsHash,uint256 nonce,uint256 deadline)',
+            'AcceptGeneralTermsForRenewal(uint256 tokenId,uint256 expires,uint256 duration,bytes32 termsHash,uint256 nonce,uint256 deadline)',
           ),
         ),
       )
@@ -324,7 +376,7 @@ describe('community names', () => {
       ).toBe(
         keccak256(
           toHex(
-            'AcceptCommunityTermsForRenewal(uint256 tokenId,uint256 duration,bytes32 termsHash,uint256 nonce,uint256 deadline)',
+            'AcceptCommunityTermsForRenewal(uint256 tokenId,uint256 expires,uint256 duration,bytes32 termsHash,uint256 nonce,uint256 deadline)',
           ),
         ),
       )
@@ -535,9 +587,9 @@ describe('community names', () => {
     it('the sponsor renews a listed name up to three years out, not further', async () => {
       const f = await load()
       await acceptAndRegister(f)
-      await acceptForRenewal(f.namePolicy, alice)
+      await acceptRenewal(f, alice)
       await renewOnCredit(f.sponsor, alice.address)
-      await acceptForRenewal(f.namePolicy, alice)
+      await acceptRenewal(f, alice)
       await expect(
         renewOnCredit(f.sponsor, alice.address),
       ).toBeRevertedWithCustomErrorFrom(f.controller, 'DurationTooLong')
@@ -907,6 +959,10 @@ describe('community names', () => {
       const f = await load()
       await acceptAndRegister(f)
       await expect(renewAs(f.controller, bob)).rejects.toThrow()
+      await expect(renewAs(f.controller, bob)).toBeRevertedWithCustomErrorFrom(
+        f.namePolicy,
+        'NotHolder',
+      )
     })
 
     it('a renewal by the holder reverts without an acceptance', async () => {
@@ -921,7 +977,7 @@ describe('community names', () => {
       const f = await load()
       await acceptAndRegister(f)
       const before = await f.baseRegistrar.read.nameExpires([COMMUNITY_ID])
-      await acceptForRenewal(f.namePolicy, alice)
+      await acceptRenewal(f, alice)
       const hash = await renewAs(f.controller, alice)
       expect(await f.baseRegistrar.read.nameExpires([COMMUNITY_ID])).toBe(
         before + YEAR,
@@ -945,7 +1001,7 @@ describe('community names', () => {
     it("someone else's acceptance neither counts nor blocks the holder's", async () => {
       const f = await load()
       await acceptAndRegister(f)
-      await acceptForRenewal(f.namePolicy, bob)
+      await acceptRenewal(f, bob)
       await expect(renewAs(f.controller, bob)).toBeRevertedWithCustomErrorFrom(
         f.namePolicy,
         'NotHolder',
@@ -953,26 +1009,26 @@ describe('community names', () => {
       await expect(
         renewAs(f.controller, alice),
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
-      await acceptForRenewal(f.namePolicy, alice)
+      await acceptRenewal(f, alice)
       await renewAs(f.controller, alice)
     })
 
     it('an acceptance is valid only for the duration it was made for', async () => {
       const f = await load()
       await acceptAndRegister(f)
-      await acceptForRenewal(f.namePolicy, alice, { duration: YEAR + DAY })
+      await acceptRenewal(f, alice, { duration: YEAR + DAY })
       await expect(
         renewAs(f.controller, alice),
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
-      await acceptForRenewal(f.namePolicy, alice)
+      await acceptRenewal(f, alice)
       await renewAs(f.controller, alice)
     })
 
     it('an acceptance is valid only for the term it was made in', async () => {
       const f = await load()
       await acceptAndRegister(f, GENERAL)
-      await acceptForRenewal(f.namePolicy, alice, { k: GENERAL })
-      await acceptForRenewal(f.namePolicy, alice, {
+      await acceptRenewal(f, alice, { k: GENERAL })
+      await acceptRenewal(f, alice, {
         k: GENERAL,
         duration: 2n * YEAR,
       })
@@ -994,18 +1050,18 @@ describe('community names', () => {
       await expect(
         renewOnCredit(f.sponsor, alice.address),
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
-      await acceptForRenewal(f.namePolicy, alice, { duration: YEAR + DAY })
+      await acceptRenewal(f, alice, { duration: YEAR + DAY })
       await expect(
         renewOnCredit(f.sponsor, alice.address),
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
-      await acceptForRenewal(f.namePolicy, alice)
+      await acceptRenewal(f, alice)
       await renewOnCredit(f.sponsor, alice.address)
     })
 
     it('new terms between acceptance and renewal require a new acceptance', async () => {
       const f = await load()
       await acceptAndRegister(f)
-      await acceptForRenewal(f.namePolicy, alice)
+      await acceptRenewal(f, alice)
       await f.namePolicy.write.setCommunityTerms([NEW_TERMS_LINK], {
         account: owner,
       })
@@ -1015,35 +1071,24 @@ describe('community names', () => {
       await expect(
         acceptForRenewal(f.namePolicy, alice),
       ).toBeRevertedWithCustomError('TermsMismatch')
-      await acceptForRenewal(f.namePolicy, alice, { hash: NEW_TERMS })
+      await acceptRenewal(f, alice, { hash: NEW_TERMS })
       await renewAs(f.controller, alice)
     })
 
     it('the registrar relays a signed acceptance and renews on credit for the holder only', async () => {
       const f = await load()
       await acceptAndRegister(f)
+      const expires = await f.baseRegistrar.read.nameExpires([COMMUNITY_ID])
       await f.namePolicy.write.acceptCommunityTermsForRenewalWithSig(
         [
           COMMUNITY_ID,
+          expires,
           YEAR,
           TERMS,
           alice.address,
           0n,
           FAR_FUTURE,
-          await signIntent(
-            publicClient,
-            aliceClient,
-            'SimplexNamePolicy',
-            f.namePolicy.address,
-            'AcceptCommunityTermsForRenewal',
-            {
-              tokenId: COMMUNITY_ID,
-              duration: YEAR,
-              termsHash: TERMS,
-              nonce: 0n,
-              deadline: FAR_FUTURE,
-            },
-          ),
+          await signRenewalAcceptance(f.namePolicy, aliceClient, { expires }),
         ],
         { account: registrar },
       )
@@ -1056,10 +1101,28 @@ describe('community names', () => {
       ])
     })
 
-    it('a transfer ends the former holder renewals, and the new holder accepts its own', async () => {
+    it('a signed acceptance relayed after the expiry changed renews nothing', async () => {
       const f = await load()
       await acceptAndRegister(f)
-      await acceptForRenewal(f.namePolicy, alice)
+      const expires = await f.baseRegistrar.read.nameExpires([COMMUNITY_ID])
+      const sig = await signRenewalAcceptance(f.namePolicy, aliceClient, {
+        expires,
+      })
+      await acceptRenewal(f, alice)
+      await renewAs(f.controller, alice)
+      await f.namePolicy.write.acceptCommunityTermsForRenewalWithSig(
+        [COMMUNITY_ID, expires, YEAR, TERMS, alice.address, 0n, FAR_FUTURE, sig],
+        { account: registrar },
+      )
+      await expect(
+        renewOnCredit(f.sponsor, alice.address),
+      ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
+    })
+
+    it("a transfer ends the former holder's renewals, and the new holder accepts its own", async () => {
+      const f = await load()
+      await acceptAndRegister(f)
+      await acceptRenewal(f, alice)
       const offer = await offerToBob(f)
       await f.namePolicy.write.acceptCommunityTermsForClaim(
         [COMMUNITY_ID, alice.address, offer, TERMS],
@@ -1079,7 +1142,7 @@ describe('community names', () => {
         f.namePolicy,
         'TermsNotAccepted',
       )
-      await acceptForRenewal(f.namePolicy, bob)
+      await acceptRenewal(f, bob)
       await renewAs(f.controller, bob)
     })
 
@@ -1100,7 +1163,7 @@ describe('community names', () => {
         f.baseRegistrar.read.ownerOf([COMMUNITY_ID]),
       ).rejects.toThrow()
 
-      await acceptForRenewal(f.namePolicy, bob)
+      await acceptRenewal(f, bob)
       await expect(renewAs(f.controller, bob)).toBeRevertedWithCustomErrorFrom(
         f.namePolicy,
         'NotHolder',
@@ -1109,9 +1172,9 @@ describe('community names', () => {
         renewOnCredit(f.sponsor, bob.address),
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'NotHolder')
 
-      await acceptForRenewal(f.namePolicy, alice)
+      await acceptRenewal(f, alice)
       await renewOnCredit(f.sponsor, alice.address)
-      await acceptForRenewal(f.namePolicy, alice, { k: GENERAL })
+      await acceptRenewal(f, alice, { k: GENERAL })
       await renewAs(f.controller, alice, GENERAL)
       expect(await f.baseRegistrar.read.ownerOf([COMMUNITY_ID])).toBe(
         getAddress(alice.address),
@@ -1253,45 +1316,33 @@ describe('terms of each kind', () => {
       it('renewal refuses an acceptance of the other terms', async () => {
         const f = await load()
         await acceptAndRegister(f, k)
-        await acceptForRenewal(f.namePolicy, alice, { k: other, hash: other.hash })
+        await acceptRenewal(f, alice, { k: other, id: k.id, hash: other.hash })
         await expect(
           renewAs(f.controller, alice, k),
         ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
-        await acceptForRenewal(f.namePolicy, alice, { k })
+        await acceptRenewal(f, alice, { k })
         await renewAs(f.controller, alice, k)
       })
 
       it('a signed renewal acceptance reverts from the wrong signer, on replay and after its deadline', async () => {
         const { namePolicy } = await load()
-        const sign = (client: any) =>
-          signIntent(
-            publicClient,
-            client,
-            'SimplexNamePolicy',
-            namePolicy.address,
-            k.renewalType,
-            {
-              tokenId: k.id,
-              duration: YEAR,
-              termsHash: k.hash,
-              nonce: 0n,
-              deadline: FAR_FUTURE,
-            },
-          )
         const relay = (deadline: bigint, sig: `0x${string}`) =>
           callPolicy(
             namePolicy,
             k.acceptForRenewalWithSig,
-            [k.id, YEAR, k.hash, bob.address, 0n, deadline, sig],
+            [k.id, 0n, YEAR, k.hash, bob.address, 0n, deadline, sig],
             registrar,
           )
         await expect(
-          relay(FAR_FUTURE, await sign(malloryClient)),
+          relay(
+            FAR_FUTURE,
+            await signRenewalAcceptance(namePolicy, malloryClient, { k }),
+          ),
         ).toBeRevertedWithCustomError('InvalidSignature')
         await expect(relay(1n, '0x')).toBeRevertedWithCustomError(
           'SignatureExpired',
         )
-        const sig = await sign(bobClient)
+        const sig = await signRenewalAcceptance(namePolicy, bobClient, { k })
         await relay(FAR_FUTURE, sig)
         expect(
           await namePolicy.read.acceptedRenewalTerms([

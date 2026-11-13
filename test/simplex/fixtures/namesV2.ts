@@ -316,6 +316,7 @@ export const eip712Types = {
   ],
   AcceptGeneralTermsForRenewal: [
     { name: 'tokenId', type: 'uint256' },
+    { name: 'expires', type: 'uint256' },
     { name: 'duration', type: 'uint256' },
     { name: 'termsHash', type: 'bytes32' },
     { name: 'nonce', type: 'uint256' },
@@ -323,6 +324,7 @@ export const eip712Types = {
   ],
   AcceptCommunityTermsForRenewal: [
     { name: 'tokenId', type: 'uint256' },
+    { name: 'expires', type: 'uint256' },
     { name: 'duration', type: 'uint256' },
     { name: 'termsHash', type: 'bytes32' },
     { name: 'nonce', type: 'uint256' },
@@ -500,10 +502,28 @@ export async function acceptGeneralTermsForRenewal(
     'SimplexNamePolicy',
     await controller.read.namePolicy(),
   )
+  const tokenId = BigInt(labelhash(label))
   return namePolicy.write.acceptGeneralTermsForRenewal(
-    [BigInt(labelhash(label)), duration, GENERAL_TERMS],
+    [
+      tokenId,
+      await nameExpires(connection, namePolicy, tokenId),
+      duration,
+      GENERAL_TERMS,
+    ],
     options,
   )
+}
+
+async function nameExpires(
+  connection: NetworkConnection,
+  namePolicy: any,
+  tokenId: bigint,
+): Promise<bigint> {
+  const registrar = await connection.viem.getContractAt(
+    'BaseRegistrarImplementation',
+    await namePolicy.read.registrar(),
+  )
+  return registrar.read.nameExpires([tokenId])
 }
 
 export async function signGeneralTermsForRenewal(
@@ -513,7 +533,16 @@ export async function signGeneralTermsForRenewal(
   duration: bigint,
   holder: `0x${string}`,
 ): Promise<
-  [bigint, bigint, `0x${string}`, `0x${string}`, bigint, bigint, `0x${string}`]
+  [
+    bigint,
+    bigint,
+    bigint,
+    `0x${string}`,
+    `0x${string}`,
+    bigint,
+    bigint,
+    `0x${string}`,
+  ]
 > {
   const namePolicy = await connection.viem.getContractAt(
     'SimplexNamePolicy',
@@ -524,6 +553,7 @@ export async function signGeneralTermsForRenewal(
   )
   if (!client) throw new Error(`no wallet client for ${holder}`)
   const tokenId = BigInt(labelhash(label))
+  const expires = await nameExpires(connection, namePolicy, tokenId)
   const nonce: bigint = await namePolicy.read.nonces([holder])
   const sig = await signIntent(
     await connection.viem.getPublicClient(),
@@ -531,9 +561,16 @@ export async function signGeneralTermsForRenewal(
     'SimplexNamePolicy',
     namePolicy.address,
     'AcceptGeneralTermsForRenewal',
-    { tokenId, duration, termsHash: GENERAL_TERMS, nonce, deadline: FAR_FUTURE },
+    {
+      tokenId,
+      expires,
+      duration,
+      termsHash: GENERAL_TERMS,
+      nonce,
+      deadline: FAR_FUTURE,
+    },
   )
-  return [tokenId, duration, GENERAL_TERMS, holder, nonce, FAR_FUTURE, sig]
+  return [tokenId, expires, duration, GENERAL_TERMS, holder, nonce, FAR_FUTURE, sig]
 }
 
 /** Enough allowance that a test never has to think about it: $1000. */
