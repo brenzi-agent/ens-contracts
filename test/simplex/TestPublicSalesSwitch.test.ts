@@ -3,6 +3,7 @@ import { zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
@@ -96,11 +97,17 @@ describe('public sales switch', () => {
     await passDisputePeriod(connection)
     expect(await controller.read.publicSalesOpen()).toBe(false)
 
+    const accept = () =>
+      acceptGeneralTermsForRenewal(connection, controller, 'renewany', YEAR, {
+        account: alice,
+      })
+    await accept()
     await controller.write.renew(['renewany', YEAR, zeroHash], {
       account: alice,
       value: YEAR_PRICE_USD,
     })
-    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash], {
+    await accept()
+    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash, alice.address], {
       account: registrar,
     })
   })

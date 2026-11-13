@@ -3,6 +3,7 @@ import { labelhash, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
@@ -41,6 +42,21 @@ async function sponsoredRegister(controller: any, reg: any) {
   })
   const sponsor = await sponsorOf(connection, controller)
   return registerWithCredit(connection, sponsor, reg, { account: registrar })
+}
+
+async function sponsoredRenew(
+  controller: any,
+  sponsor: any,
+  label: string,
+  duration: bigint,
+) {
+  await acceptGeneralTermsForRenewal(connection, controller, label, duration, {
+    account: alice,
+  })
+  return sponsor.write.renewWithCredit(
+    [label, duration, zeroHash, alice.address],
+    { account: registrar },
+  )
 }
 
 /**
@@ -270,9 +286,7 @@ describe('registrar allowance', () => {
 
     const tokenId = BigInt(labelhash('renewable'))
     const before = await baseRegistrar.read.nameExpires([tokenId])
-    await sponsor.write.renewWithCredit(['renewable', YEAR, zeroHash], {
-      account: registrar,
-    })
+    await sponsoredRenew(controller, sponsor, 'renewable', YEAR)
 
     expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)
     expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
@@ -314,14 +328,9 @@ describe('registrar allowance', () => {
     )
     await sponsoredRegister(controller, registration('decade', alice.address))
     await passDisputePeriod(connection)
-    const longest = 9n * YEAR + MIN_DISPUTE_DAYS * DAY
-    await sponsor.write.renewWithCredit(['decade', longest, zeroHash], {
-      account: registrar,
-    })
+    await sponsoredRenew(controller, sponsor, 'decade', 9n * YEAR + MIN_DISPUTE_DAYS * DAY)
     await expect(
-      sponsor.write.renewWithCredit(['decade', YEAR, zeroHash], {
-        account: registrar,
-      }),
+      sponsoredRenew(controller, sponsor, 'decade', YEAR),
     ).toBeRevertedWithCustomErrorFrom(controller, 'DurationTooLong')
   })
 
