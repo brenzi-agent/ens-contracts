@@ -10,24 +10,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: pnpm/action-setup@v4
         with:
-          bun-version: 1.2.3
+          version: 9
 
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+          cache: pnpm
 
-      - run: bun install --frozen-lockfile
+      - run: pnpm install --frozen-lockfile
 
-      - run: bun run compile
+      - run: pnpm exec hardhat compile
 
       - name: Contract sizes
         run: |
-          for c in simplex/SimplexController simplex/SimplexNamePolicy simplex/SimplexSponsor ethregistrar/BaseRegistrarImplementation; do
+          for c in registry/ENSRegistry ethregistrar/BaseRegistrarImplementation simplex/SimplexResolver simplex/SubnameRegistrar simplex/SimplexController simplex/SimplexNamePolicy simplex/SimplexSponsor; do
             node -e 'const a=require(process.argv[1]); console.log(process.argv[2], (a.deployedBytecode.length-2)/2)' "./artifacts/contracts/$c.sol/$(basename $c).json" "$(basename $c)"
           done
+          for c in TransparentUpgradeableProxy ProxyAdmin; do
+            f=$(find ./artifacts -name "$c.json" -path '*contracts-v5*' | head -1)
+            node -e 'const a=require(process.argv[1]); console.log(process.argv[2], (a.deployedBytecode.length-2)/2)' "$f" "$c"
+          done
 
-      - run: bunx vitest run test/simplex
+      - run: pnpm exec vitest run test/simplex
+        env:
+          NODE_OPTIONS: --disable-warning=ExperimentalWarning
+
+      - run: pnpm exec vitest run test/registry test/root
+        env:
+          NODE_OPTIONS: --disable-warning=ExperimentalWarning
+
+      - name: Upstream registrar test, without the pushed transfer refused since recipient consent
+        run: pnpm exec vitest run test/ethregistrar/TestBaseRegistrar.test.ts -t '^(?!.*should permit the owner to transfer a registration)'
         env:
           NODE_OPTIONS: --disable-warning=ExperimentalWarning
