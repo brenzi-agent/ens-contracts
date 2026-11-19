@@ -1,35 +1,87 @@
-# SimplexController upgrade & storage-layout invariants
+# Upgrade & storage-layout invariants
 
-`SimplexController` is upgradeable (ERC-1967 UUPS proxy; `_authorizeUpgrade`
-is `onlyOwner`), and so is `SimplexNamePolicy` (see the last section). A UUPS
-upgrade swaps the implementation behind a proxy whose storage persists — so the
-new implementation **must keep the exact storage layout** of the old one, only
+Each of these contracts is deployed behind its own OpenZeppelin 5.1.0
+`TransparentUpgradeableProxy`:
+
+- `ENSRegistry`
+- `BaseRegistrarImplementation`
+- `SimplexResolver`
+- `SubnameRegistrar`
+- `SimplexController`
+- `SimplexNamePolicy`
+
+Each proxy creates its own `ProxyAdmin` in its constructor; the address of the
+`ProxyAdmin` is an immutable of the proxy. The owner of the `ProxyAdmin`
+upgrades the proxy with
+`ProxyAdmin.upgradeAndCall(proxy, implementation, data)`. An upgrade swaps the
+implementation behind a proxy whose storage persists — so the new
+implementation **must keep the exact storage layout** of the old one, only
 appending. Get this wrong and existing values (prices, the sponsor, …) silently
 read from the wrong slots.
 
-Upgradeability is not permanent. `freeze()` is one-way and makes
-`_authorizeUpgrade` revert `Frozen`, which is what fixes the implementation at
-lockdown; everything in this document applies up to that point and not after.
+Upgradeability is not permanent. A contract is frozen when the owner of its
+`ProxyAdmin` calls `renounceOwnership()`: from then on `upgradeAndCall`
+reverts, and the proxy's admin, an immutable, cannot be replaced. Each contract
+is frozen at a time of its own; everything in this document applies to a
+contract until its `ProxyAdmin` is renounced.
+
+```mermaid
+flowchart LR
+  Owner[ProxyAdmin owner] -->|upgradeAndCall, renounceOwnership| PA[ProxyAdmin]
+  PA -->|upgradeToAndCall| P[TransparentUpgradeableProxy]
+  Caller[every other caller, the ProxyAdmin owner included] -->|any call| P
+  P -.->|delegatecall| I[implementation]
+```
+
+## Transparent proxies
+
+- The addresses of the implementation and of the admin are stored at the
+  ERC-1967 slots, `keccak256("eip1967.proxy.implementation") - 1` and
+  `keccak256("eip1967.proxy.admin") - 1`, outside the sequential layout.
+- A call from the `ProxyAdmin` reaches only `upgradeToAndCall`. Every other
+  call is delegated to the implementation.
+- An implementation must not declare `upgradeTo(address)`,
+  `upgradeToAndCall(address,bytes)` or `proxiableUUID()`, so that the
+  `ProxyAdmin` stays the only upgrade path.
+- An implementation must not write the ERC-1967 slots.
+- `test/simplex/__snapshots__/storageLayouts.json` records the storage layout
+  of the six implementations, and `test/simplex/TestUpgradeableStack.test.ts`
+  compares the compiled layouts with it and checks the six ABIs for the
+  selectors above. An upgrade that changes a layout updates the snapshot in the
+  same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`).
 
 ## Storage model
 
+Slots are laid out base-contracts-first. Where each contract's own variables
+start:
+
+| Contract | Slots of the base contracts | First own slot | `__gap` |
+|---|---|---|---|
+| `ENSRegistry` | 0: `Initializable` | 1 | – |
+| `BaseRegistrarImplementation` | 0-9: `ERC721`, `ERC721Enumerable`; 10: `Ownable`, `Initializable` | 11 | – |
+| `SimplexResolver` | 0-11: the resolver profiles; 12-13: `PublicResolver` | 14 | – |
+| `SubnameRegistrar` | – | 0 | – |
+| `SimplexController` | 0-150: `Initializable`, `ContextUpgradeable`, `OwnableUpgradeable`, `Ownable2StepUpgradeable` | 151 | `uint256[43]` |
+| `SimplexNamePolicy` | – | 0 | `uint256[42]` |
+
+Each of the six is the most derived contract behind its proxy, so a contract
+without `__gap` appends after its last variable.
+
 ```
 contract SimplexController is
-    Initializable, Ownable2StepUpgradeable, UUPSUpgradeable, IETHRegistrarController, ERC165
+    Initializable, Ownable2StepUpgradeable, IETHRegistrarController, ERC165
 ```
 
-Slots are laid out base-contracts-first. The OZ upgradeable parents
-(`Initializable`, `Ownable2Step`, `UUPS`) reserve their own slots and carry
-their own gaps — leave them alone. In practice they occupy roughly 250 slots, so
-this contract's own variables start well past slot 250. After them come
+The OZ upgradeable parents (`Initializable`, `Ownable2Step`) reserve their own
+slots and carry their own gaps — leave them alone. They occupy slots 0 to 150,
+so this contract's own variables start at slot 151. After them come
 `ens`, `base`, `minCommitmentAge`, `maxCommitmentAge`, two reserved slots
 (below), `prices`, `tldNode`, `tldSuffix`, `commitments`, `minCharLength`,
 `_unusedReservedNames`, `smpxNft` + `nftGateEnabled` + `_unusedPriceOracleFrozen`
 (packed), `_reentrancyStatus`, then the names-v2 block:
 
 ```solidity
-address public beneficiary;                        // packs with `frozen`
-bool    public frozen;
+address public beneficiary;
 address public sponsor;
 address public defaultResolver;                    // packs with `publicSalesOpen`
 bool    public publicSalesOpen;
@@ -78,14 +130,23 @@ reordering them swaps the two lists; treat the struct as append-only too.
    immediately *before* `__gap`, and `__gap`'s size is decremented by the number
    of 32-byte slots it consumes (one slot for a `mapping`, `address`, `bool`,
    `uintN`, `bytes32`; more for larger structs). Net slot count is unchanged.
+   In a contract without `__gap`, it is declared after the last variable.
 2. **Never reorder, remove, retype, or rename-with-different-type** an existing
    state variable. Renaming with the identical type is fine (layout is by
    position+type, not name); changing the type or order corrupts every slot
    after it.
 3. **Never reorder the base contracts** in the `is (...)` list — that also moves
    storage.
-4. `constant` / `immutable` values are not in storage and may be changed or added
-   freely.
+4. `constant` / `immutable` values are compiled into the implementation, not
+   stored in the proxy, so an upgrade replaces them. A new implementation keeps
+   the value of each immutable unless changing it is the purpose of the
+   upgrade. The immutables of `SimplexResolver` (`ens`; `nameWrapper`, the
+   subname registrar; `trustedETHController`, the controller;
+   `trustedReverseRegistrar`) and of `SubnameRegistrar` (`ens`,
+   `baseRegistrar`, `_deployer`) determine who may write records.
+   `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract compares
+   the runtime code of a candidate with its artifact, with the current
+   immutables in place.
 
 ### Adding a variable — example
 
@@ -107,33 +168,41 @@ Same slot count, same slot size. `__gap` is untouched.
 
 ## Pre-upgrade checklist
 
-- [ ] **Validate the storage layout against the deployed implementation.** Use
-      the OpenZeppelin Upgrades plugin — `upgrades.validateUpgrade(OldImpl,
-      NewImpl)` (or `upgrades.upgradeProxy`, which validates first). The plugin
-      (`@openzeppelin/hardhat-upgrades`) is **not yet a devDependency** — add it,
-      or diff layouts manually with `forge inspect SimplexController storage-layout`
-      (old vs new) / Hardhat's `storageLayout` build output.
+- [ ] **Validate the storage layout against the deployed implementation.**
+      `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract
+      compares the layouts, refuses the UUPS selectors, a `fallback` and a
+      `receive`, and prints the calldata of `ProxyAdmin.upgradeAndCall`. Update
+      `test/simplex/__snapshots__/storageLayouts.json` in the same commit and
+      review its diff.
 - [ ] **Run the V2 upgrade test** (issue #9): deploy V1 behind a proxy, populate
       state (min char length, NFT gate, oracle, beneficiary, the sponsor,
-      the sales switch, the name policy), upgrade to V2, and assert every V1
-      value survives unchanged and the new behaviour works.
+      the sales switch, the name policy), upgrade to V2 through the
+      `ProxyAdmin`, and assert every V1 value survives unchanged and the new
+      behaviour works.
 - [ ] **Run `test/simplex/TestControllerStorageLayout.test.ts`.** It reads raw
       slots from a deployed proxy and asserts the packing and the reserved slots
       directly, which catches a reorder the OZ plugin would also catch and a
       deleted placeholder it would not.
-- [ ] Confirm `_authorizeUpgrade` owner is the intended admin timelock before the
-      upgrade tx, and that `frozen()` is still `false` — after `freeze()` there is
-      no upgrade path at all.
+- [ ] **Review the new code for `delegatecall`.** A `delegatecall` to an address
+      other than the contract itself runs that code against the proxy's
+      storage, the ERC-1967 slots included.
+- [ ] **Review the new code for state written at construction.** A constructor
+      or the initializer of a state variable writes the implementation's
+      storage, never the proxy's. `constant` and `immutable` values are exempt
+      (invariant 4).
+- [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
+      before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
+      refuses every upgrade.
 - [ ] Bump the `__gap` size in the same commit as any new state variable, so the
       two never drift.
 
 ## `SimplexNamePolicy`
 
 The name policy (reserved names, community names, terms links, acceptances) sits
-behind `SimplexNamePolicyProxy` (ERC-1967, UUPS). `_authorizeUpgrade` requires
-the controller's `owner()`, reverts `Frozen` once the controller is frozen, and
-reverts `ImplementationMismatch` unless the new implementation's immutable
-`controller()` and `registrar()` equal the current ones. Its own variables are
+behind its own `TransparentUpgradeableProxy`. Its immutable `controller()` and
+`registrar()` bind it to one controller and one registrar;
+`scripts/prepare-upgrade.mjs` refuses a candidate whose `controller()` or
+`registrar()` differs from the current one. Its own variables are
 `_names` (each name's community flag and reservation reason, in one slot),
 `communityTermsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`,
 `communityTermsLink`, `generalTermsLink`, `generalTermsHash`, then
@@ -144,6 +213,6 @@ The policy compiles in the controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` a
 in its constructor. A controller upgrade that changed any of them needs a policy
 upgrade as well.
 
-It has no initializer. An implementation that adds one must run it through
-`upgradeToAndCall`, in the upgrade transaction itself, or anyone can call it
-first.
+It has no initializer. An implementation that adds one must run it through the
+`data` of `ProxyAdmin.upgradeAndCall`, in the upgrade transaction itself, or
+anyone can call it first.
