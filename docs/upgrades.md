@@ -24,11 +24,11 @@ Upgradeability is not permanent. A contract is frozen when the owner of its
 reverts, and the proxy's admin, an immutable, cannot be replaced. Each contract
 is frozen at a time of its own; everything in this document applies to a
 contract until its `ProxyAdmin` is renounced. `renounceOwnership()` and
-`transferOwnership` go to the `ProxyAdmin`, the CREATE address of the proxy at
-nonce 1 that `scripts/prepare-upgrade.mjs` prints, never to the proxy:
-`BaseRegistrarImplementation` and `SimplexController` have functions with the
-same selectors, and the proxy passes a call of the `ProxyAdmin` owner on to
-them, which renounces or moves the contract's own ownership.
+`transferOwnership` are sent to the `ProxyAdmin`, the CREATE address of the
+proxy at nonce 1 that `scripts/prepare-upgrade.mjs` prints, never to the proxy:
+the same selectors are declared by `BaseRegistrarImplementation` and
+`SimplexController`, and a call of the `ProxyAdmin` owner to the proxy is
+delegated to them and applied to the contract's own ownership.
 
 ```mermaid
 flowchart LR
@@ -55,10 +55,11 @@ flowchart LR
   compares the compiled layouts with it and checks the six ABIs for the
   selectors above. An upgrade that changes a layout updates the snapshot in the
   same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`), and
-  its diff follows invariants 1 and 2: new variables add lines before the
-  trailing `__gap`, or at the end of a contract without one; an enum's line
-  gains values at its end; the `__gap` line starts later and is shorter by the
-  whole slots the new variables occupy; every other line stays as it is.
+  its diff follows invariants 1 and 2: the lines of new variables are inserted
+  before the trailing `__gap`, or appended in a contract without one; values
+  are appended to the list of an enum; the start slot of the `__gap` line is
+  raised, and its length reduced, by the whole slots occupied by the new
+  variables; every other line is unchanged.
 
 ## Storage model
 
@@ -117,40 +118,42 @@ uint256[43] private __gap;   // shrinks as state is added
   list moved to `SimplexNamePolicy`.
 
 None is written by anything. They exist so removing a feature does not shift
-every slot below it, and they keep their declarations (invariant 2).
+every slot below it, and their declarations are kept (invariant 2).
 
 ### `Reason` is storage
 
 `SimplexNamePolicy._names` holds `Reason`, and an enum is stored as its
 member's position. Once `.simplex` has reservations, reordering or removing a
 member relabels every name reserved under it, with nothing on chain to detect
-it. Treat the enum as append-only from then on, and keep `None` at 0 — `delete`
-writes zero. The members of `NameEntry` share one slot in declaration order, so
-reordering them swaps the two lists; keep them unchanged (invariant 2).
+it. Values are only appended to the enum (invariant 2), and `None` is kept at
+0 — `delete` writes zero. The members of `NameEntry` share one slot in
+declaration order, so reordering them swaps the two lists; keep them unchanged
+(invariant 2).
 
 ## Invariants (do not break these)
 
 1. **Append only, from the front of `__gap`.** A new state variable is declared
-   immediately *before* `__gap`. The trailing `__gap` keeps the slot it ends at
-   and is shortened by the whole slots the new variables occupy; a variable
-   packed into the unused bytes of the slot before it occupies none, so a
-   `bool` after `SimplexController.namePolicy` (slot 169, offset 20) leaves
-   `__gap` as it is. In a contract without `__gap`, a new variable is declared
-   after the last one. Only the most derived contract gains variables: one
-   added to a base contract, such as `PublicResolver` or one of its profiles,
-   `ERC721`, `ERC721Enumerable` or `Ownable` in a merge from upstream ENS,
-   moves every variable declared after it.
-2. **An existing variable keeps its label, slot, offset and type.** Never
-   reorder, remove, rename or retype one. The members of a stored struct stay
-   unchanged, and an enum gains values only at its end.
+   immediately *before* `__gap`. The end slot of the trailing `__gap` is
+   unchanged, and `__gap` is shortened by the whole slots occupied by the new
+   variables; none is occupied by a variable packed into the unused bytes of
+   the preceding slot, so `__gap` is unchanged by a `bool` after
+   `SimplexController.namePolicy` (slot 169, offset 20). In a contract without
+   `__gap`, a new variable is declared after the last one. Only the most
+   derived contract gains variables: one added to a base contract, such as
+   `PublicResolver` or one of its profiles, `ERC721`, `ERC721Enumerable` or
+   `Ownable` in a merge from upstream ENS, moves every variable declared after
+   it.
+2. **The label, slot, offset and type of an existing variable are unchanged.**
+   Never reorder, remove, rename or retype one. The members of a stored struct
+   are unchanged, and values are only appended to an enum.
 3. **Never reorder the base contracts** in the `is (...)` list, and add no base
-   contract with storage — either moves storage. `Initializable` stays at
+   contract with storage — either moves storage. `Initializable` is kept at
    `@openzeppelin/contracts-upgradeable` 4.9.3 in `ENSRegistry`,
    `BaseRegistrarImplementation` and `SimplexController`: its `_initialized`
    (in the registrar, slot 10, offset 20) is the only barrier against a second
-   `initialize`, and the 5.x `Initializable` reads an ERC-7201 slot that holds
-   zero in an existing proxy, so anyone could then call, for example,
-   `initialize(ens, baseNode, attacker)` on the registrar.
+   `initialize`, and the state of the 5.x `Initializable` is read from an
+   ERC-7201 slot, zero in an existing proxy, so anyone could then call, for
+   example, `initialize(ens, baseNode, attacker)` on the registrar.
 4. `constant` / `immutable` values are compiled into the implementation, not
    stored in the proxy, so an upgrade replaces them. A new implementation keeps
    the value of each immutable unless changing it is the purpose of the
@@ -174,8 +177,8 @@ reordering them swaps the two lists; keep them unchanged (invariant 2).
 
 ### Retiring a variable — keep its declaration
 
-A variable that falls out of use keeps its label, type and place, so nothing
-below it moves and `__gap` is untouched.
+A variable out of use is kept with its label, type and place, so no slot below
+it is moved and `__gap` is untouched.
 
 ## Pre-upgrade checklist
 
@@ -205,10 +208,11 @@ below it moves and `__gap` is untouched.
       `constant` and `immutable` values are exempt (invariant 4). The function
       passed as `data` runs with the `ProxyAdmin` as `msg.sender`: an
       `onlyOwner` function reverts there, a function that records its caller
-      records the `ProxyAdmin`, and `SimplexResolver.multicall` makes
-      `upgradeAndCall` revert `FailedCall()`: each of its `delegatecall`s to
-      `address(this)` runs the proxy's code with the same `msg.sender` and
-      reverts `ProxyDeniedAdminAccess`, which its `require(success)` discards.
+      records the `ProxyAdmin`, and with `SimplexResolver.multicall` as `data`,
+      `upgradeAndCall` reverts `FailedCall()`: each `delegatecall` of
+      `multicall` to `address(this)` is executed by the proxy's code with the
+      same `msg.sender` and reverts `ProxyDeniedAdminAccess`, an error discarded
+      by `require(success)`.
 - [ ] **Guard the function passed as `data`.** In `ENSRegistry`,
       `BaseRegistrarImplementation` and `SimplexController` it is a
       `reinitializer(n)`. `SimplexNamePolicy`, `SubnameRegistrar` and
