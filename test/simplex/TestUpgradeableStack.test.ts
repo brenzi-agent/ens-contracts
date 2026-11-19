@@ -614,7 +614,7 @@ describe('upgradeable stack', () => {
       }
     })
 
-    it('state written before an upgrade reads the same after it', async () => {
+    it('an upgrade with empty data leaves state unchanged', async () => {
       for (const p of stack(await load())) {
         const before = await p.state()
         await expectUpgraded(p, admin)
