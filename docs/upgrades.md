@@ -155,10 +155,9 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    contract with storage — either moves storage. `Initializable` is kept at
    `@openzeppelin/contracts-upgradeable` 4.9.3 in `ENSRegistry`,
    `BaseRegistrarImplementation` and `SimplexController`: its `_initialized`
-   (in the registrar, slot 10, offset 20) is the only barrier against a second
+   (in the registrar, slot 10, offset 20) is the state that refuses a second
    `initialize`, and the state of the 5.x `Initializable` is read from an
-   ERC-7201 slot, zero in an existing proxy, so anyone could then call, for
-   example, `initialize(ens, baseNode, attacker)` on the registrar.
+   ERC-7201 slot, which is zero in an existing proxy.
 4. `constant` / `immutable` values are compiled into the implementation, not
    stored in the proxy, so an upgrade replaces them. A new implementation keeps
    the value of each immutable unless changing it is the purpose of the
