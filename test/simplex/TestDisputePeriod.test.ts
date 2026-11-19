@@ -131,10 +131,10 @@ describe('dispute period', () => {
       for (const [label, days] of [
         ['fourteendays', MIN_DISPUTE_DAYS],
         ['hundredtwenty', MAX_DISPUTE_DAYS],
-      ] as const)
-        expect(await f.baseRegistrar.read.disputeUntil([id(label)])).toBe(
-          await sponsored(f, label, { days }),
-        )
+      ] as const) {
+        const until = await sponsored(f, label, { days })
+        expect(await f.baseRegistrar.read.disputeUntil([id(label)])).toBe(until)
+      }
       expect(await f.controller.read.MIN_DISPUTE_DAYS()).toBe(MIN_DISPUTE_DAYS)
       expect(await f.controller.read.MAX_DISPUTE_DAYS()).toBe(MAX_DISPUTE_DAYS)
     })
