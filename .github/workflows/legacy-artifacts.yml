@@ -1,0 +1,36 @@
+name: Legacy artifacts
+
+on:
+  push:
+    branches: ['ci/ab/payment-reversal-legacy']
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        ref:
+          - 1a11cda4be59ae46a13e194d78ffdaac1ca3b0c8
+          - 7ff8c3718f77c31d88705bff46fd08c6ca5848b5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec hardhat compile
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simplex-${{ matrix.ref }}
+          path: artifacts/contracts/simplex
