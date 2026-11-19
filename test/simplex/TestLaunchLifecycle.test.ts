@@ -150,6 +150,18 @@ async function deployProxied<ContractName extends keyof ContractAbis>(
   return proxied[name].contract
 }
 
+function sixProxies() {
+  expect(Object.keys(proxied)).toEqual([
+    'ENSRegistry',
+    'BaseRegistrarImplementation',
+    'SimplexController',
+    'SubnameRegistrar',
+    'SimplexResolver',
+    'SimplexNamePolicy',
+  ])
+  return proxied
+}
+
 describe('launch lifecycle', () => {
   describe('1. deployment — the deploy key owns everything, the admin every ProxyAdmin', () => {
     beforeAll(async () => {
@@ -344,7 +356,7 @@ describe('launch lifecycle', () => {
       for (const [
         name,
         { contract, implementation, proxyAdmin },
-      ] of Object.entries(proxied)) {
+      ] of Object.entries(sixProxies())) {
         expect(await implementationOf(connection, contract.address), name).toBe(
           getAddress(implementation.address),
         )
@@ -505,7 +517,7 @@ describe('launch lifecycle', () => {
         }),
       ).toBeRevertedWithString('Controllable: Caller is not a controller')
       for (const { contract, implementation, proxyAdmin } of Object.values(
-        proxied,
+        sixProxies(),
       )) {
         await expect(
           proxyAdmin.write.upgradeAndCall(
@@ -532,7 +544,7 @@ describe('launch lifecycle', () => {
 
     it('the second run reads the handover back', async () => {
       const adminAddress = getAddress(admin.address)
-      for (const { proxyAdmin } of Object.values(proxied)) {
+      for (const { proxyAdmin } of Object.values(sixProxies())) {
         expect(await proxyAdmin.read.owner()).toBe(adminAddress)
       }
       expect(await controller.read.owner()).toBe(adminAddress)
@@ -1125,7 +1137,7 @@ describe('launch lifecycle', () => {
     })
 
     it('freezes each contract by renouncing its ProxyAdmin, and only the admin may', async () => {
-      for (const [name, { proxyAdmin }] of Object.entries(proxied)) {
+      for (const [name, { proxyAdmin }] of Object.entries(sixProxies())) {
         await expect(
           proxyAdmin.write.renounceOwnership({ account: guardian }),
           name,
@@ -1139,7 +1151,7 @@ describe('launch lifecycle', () => {
       for (const [
         name,
         { contract, implementation, proxyAdmin, deployImplementation },
-      ] of Object.entries(proxied)) {
+      ] of Object.entries(sixProxies())) {
         const next = await deployImplementation()
         await expect(
           proxyAdmin.write.upgradeAndCall(
