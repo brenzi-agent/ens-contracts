@@ -107,16 +107,13 @@ async function paid(f: Fixture, label: string, holder: Account = alice) {
   )
 }
 
-const unregister = async (
+const unregister = (
   f: Fixture,
   label: string,
+  until: bigint,
   account: Account = guardian,
   options = {},
-) =>
-  f.controller.write.unregister(
-    [label, await f.baseRegistrar.read.disputeUntil([id(label)])],
-    { account, ...options },
-  )
+) => f.controller.write.unregister([label, until], { account, ...options })
 
 async function withSubname(f: Fixture, label: string) {
   await f.ens.write.setApprovalForAll([f.subnameRegistrar.address, true], {
@@ -202,7 +199,7 @@ describe('dispute period', () => {
       )
       expect(await f.baseRegistrar.read.disputeUntil([id('brandname')])).toBe(0n)
       for (const label of ['paidineth', 'brandname'])
-        await expect(unregister(f, label)).toBeRevertedWithCustomErrorFrom(
+        await expect(unregister(f, label, 0n)).toBeRevertedWithCustomErrorFrom(
           f.baseRegistrar,
           'DisputePeriodOver',
         )
@@ -212,21 +209,21 @@ describe('dispute period', () => {
   describe('unregistration', () => {
     it('is made by the guardian or the admin, before the end of the dispute period', async () => {
       const f = await load()
-      await sponsored(f, 'byguardian')
-      await sponsored(f, 'byadmin')
+      const byGuardian = await sponsored(f, 'byguardian')
+      const byAdmin = await sponsored(f, 'byadmin')
       const lastSecond = await sponsored(f, 'lastsecond')
       const atEnd = await sponsored(f, 'atitsend')
       for (const account of [registrar, alice, carol])
         await expect(
-          unregister(f, 'byguardian', account),
+          unregister(f, 'byguardian', byGuardian, account),
         ).toBeRevertedWithCustomError('NotOwnerOrBeneficiary')
-      await unregister(f, 'byguardian', guardian)
-      await unregister(f, 'byadmin', owner)
+      await unregister(f, 'byguardian', byGuardian, guardian)
+      await unregister(f, 'byadmin', byAdmin, owner)
       await exactly(lastSecond - 1n)
-      await unregister(f, 'lastsecond', guardian, EXACT)
+      await unregister(f, 'lastsecond', lastSecond, guardian, EXACT)
       await exactly(atEnd)
       await expect(
-        unregister(f, 'atitsend', guardian, EXACT),
+        unregister(f, 'atitsend', atEnd, guardian, EXACT),
       ).toBeRevertedWithCustomErrorFrom(f.baseRegistrar, 'DisputePeriodOver')
       for (const label of ['byguardian', 'byadmin', 'lastsecond'])
         expect(await f.baseRegistrar.read.nameExpires([id(label)])).toBe(0n)
@@ -237,12 +234,12 @@ describe('dispute period', () => {
 
     it('ends the registration, its records and its subnames at once', async () => {
       const f = await load()
-      await sponsored(f, 'disputed', { resolver: f.resolver.address })
+      const until = await sponsored(f, 'disputed', { resolver: f.resolver.address })
       await f.resolver.write.setText([node('disputed'), KEY, 'https://smp/alice'], {
         account: alice,
       })
       const sub = await withSubname(f, 'disputed')
-      await expect(unregister(f, 'disputed'))
+      await expect(unregister(f, 'disputed', until))
         .toEmitEventFrom(f.baseRegistrar, 'NameUnregistered')
         .withArgs({ id: id('disputed') })
       expect(await f.baseRegistrar.read.nameExpires([id('disputed')])).toBe(0n)
@@ -268,7 +265,11 @@ describe('dispute period', () => {
           account: alice,
         }),
       ).toBeRevertedWithoutReason()
-      await expect(unregister(f, 'disputed')).toBeRevertedWithCustomErrorFrom(
+      await expect(unregister(f, 'disputed', until)).toBeRevertedWithCustomErrorFrom(
+        f.baseRegistrar,
+        'DisputeUntilMismatch',
+      )
+      await expect(unregister(f, 'disputed', 0n)).toBeRevertedWithCustomErrorFrom(
         f.baseRegistrar,
         'DisputePeriodOver',
       )
@@ -276,7 +277,7 @@ describe('dispute period', () => {
 
     it('refuses a claim and a renewal of an unregistered name', async () => {
       const f = await load()
-      await sponsored(f, 'nomoreclaim')
+      const until = await sponsored(f, 'nomoreclaim')
       await f.baseRegistrar.write.approve([bob.address, id('nomoreclaim')], {
         account: alice,
       })
@@ -287,7 +288,7 @@ describe('dispute period', () => {
         alice.address,
         { account: bob },
       )
-      await unregister(f, 'nomoreclaim')
+      await unregister(f, 'nomoreclaim', until)
       await expect(
         f.baseRegistrar.write.transferFrom(
           [alice.address, bob.address, id('nomoreclaim')],
@@ -307,12 +308,12 @@ describe('dispute period', () => {
 
     it('lets anyone register the name again at once, without the old subnames and records', async () => {
       const f = await load()
-      await sponsored(f, 'freedname', { resolver: f.resolver.address })
+      const until = await sponsored(f, 'freedname', { resolver: f.resolver.address })
       await f.resolver.write.setText([node('freedname'), KEY, 'https://smp/alice'], {
         account: alice,
       })
       const sub = await withSubname(f, 'freedname')
-      await unregister(f, 'freedname')
+      await unregister(f, 'freedname', until)
       await paid(f, 'freedname', bob)
       expect(await f.baseRegistrar.read.ownerOf([id('freedname')])).toBe(
         getAddress(bob.address),
@@ -325,8 +326,7 @@ describe('dispute period', () => {
 
     it('writes a new dispute end at a sponsored registration after an unregistration', async () => {
       const f = await load()
-      await sponsored(f, 'secondsale')
-      await unregister(f, 'secondsale')
+      await unregister(f, 'secondsale', await sponsored(f, 'secondsale'))
       const until = await sponsored(f, 'secondsale', {
         holder: bob,
         days: MAX_DISPUTE_DAYS,
@@ -337,21 +337,21 @@ describe('dispute period', () => {
     it('refuses an unregistration prepared for an earlier registration of the name', async () => {
       const f = await load()
       const first = await sponsored(f, 'resold')
-      await unregister(f, 'resold')
+      await unregister(f, 'resold', first)
       const second = await sponsored(f, 'resold', { holder: bob })
       await expect(
-        f.controller.write.unregister(['resold', first], { account: guardian }),
+        unregister(f, 'resold', first),
       ).toBeRevertedWithCustomErrorFrom(f.baseRegistrar, 'DisputeUntilMismatch')
       expect(await f.baseRegistrar.read.ownerOf([id('resold')])).toBe(
         getAddress(bob.address),
       )
-      await f.controller.write.unregister(['resold', second], { account: guardian })
+      await unregister(f, 'resold', second)
       expect(await f.baseRegistrar.read.nameExpires([id('resold')])).toBe(0n)
     })
 
     it('takes the name from a recipient of a claim in the dispute period', async () => {
       const f = await load()
-      await sponsored(f, 'soldearly')
+      const until = await sponsored(f, 'soldearly')
       await f.baseRegistrar.write.approve([bob.address, id('soldearly')], {
         account: alice,
       })
@@ -366,7 +366,7 @@ describe('dispute period', () => {
         [alice.address, bob.address, id('soldearly')],
         { account: bob },
       )
-      await unregister(f, 'soldearly')
+      await unregister(f, 'soldearly', until)
       expect(await f.baseRegistrar.read.nameExpires([id('soldearly')])).toBe(0n)
       expect(await f.ens.read.owner([node('soldearly')])).toBe(zeroAddress)
     })
@@ -406,21 +406,21 @@ describe('dispute period', () => {
 
     it('clears the default resolver although the holder points the name elsewhere', async () => {
       const f = await load()
-      await sponsored(f, 'repointed', { resolver: f.resolver.address })
+      const until = await sponsored(f, 'repointed', { resolver: f.resolver.address })
       await f.resolver.write.setText([node('repointed'), KEY, 'https://smp/alice'], {
         account: alice,
       })
       await f.ens.write.setResolver([node('repointed'), zeroAddress], {
         account: alice,
       })
-      await unregister(f, 'repointed')
+      await unregister(f, 'repointed', until)
       await sponsored(f, 'repointed', { holder: bob, resolver: f.resolver.address })
       expect(await f.resolver.read.text([node('repointed'), KEY])).toBe('')
     })
 
     it('clears a past default resolver the name points at', async () => {
       const f = await load()
-      await sponsored(f, 'pastdefault', { resolver: f.resolver.address })
+      const until = await sponsored(f, 'pastdefault', { resolver: f.resolver.address })
       await f.resolver.write.setText([node('pastdefault'), KEY, 'https://smp/alice'], {
         account: alice,
       })
@@ -431,18 +431,18 @@ describe('dispute period', () => {
         zeroAddress,
       ])
       await f.controller.write.setDefaultResolver([next.address], { account: owner })
-      await unregister(f, 'pastdefault')
+      await unregister(f, 'pastdefault', until)
       expect(await f.resolver.read.text([node('pastdefault'), KEY])).toBe('')
     })
 
     it('is made without a default resolver and after the freeze', async () => {
       const f = await load()
-      await sponsored(f, 'nodefault')
-      await sponsored(f, 'afterfreeze')
+      const noDefault = await sponsored(f, 'nodefault')
+      const afterFreeze = await sponsored(f, 'afterfreeze')
       await f.controller.write.setDefaultResolver([zeroAddress], { account: owner })
-      await unregister(f, 'nodefault')
+      await unregister(f, 'nodefault', noDefault)
       await f.controller.write.freeze({ account: owner })
-      await unregister(f, 'afterfreeze')
+      await unregister(f, 'afterfreeze', afterFreeze)
       for (const label of ['nodefault', 'afterfreeze'])
         expect(await f.baseRegistrar.read.nameExpires([id(label)])).toBe(0n)
     })
