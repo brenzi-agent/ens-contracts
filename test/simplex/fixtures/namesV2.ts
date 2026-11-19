@@ -127,10 +127,18 @@ export async function deployBehindProxy<ContractName extends string>(
   }
 }
 
+export type StorageVariable = {
+  label: string
+  slot: bigint
+  offset: number
+  type: string
+  members: StorageVariable[]
+}
+
 export async function storageLayout(
   artifacts: ArtifactManager,
   contractName: string,
-): Promise<{ label: string; slot: bigint; offset: number; type: string }[]> {
+): Promise<StorageVariable[]> {
   const artifact = await artifacts.readArtifact(contractName)
   const outputPath = await artifacts.getBuildInfoOutputPath(
     artifact.buildInfoId!,
@@ -138,12 +146,21 @@ export async function storageLayout(
   const { output } = JSON.parse(await readFile(outputPath!, 'utf8'))
   const { storage, types } =
     output.contracts[artifact.inputSourceName!][contractName].storageLayout
-  return storage.map((variable: any) => ({
-    label: variable.label,
-    slot: BigInt(variable.slot),
-    offset: variable.offset,
-    type: types[variable.type].label,
-  }))
+  const membersOf = (type: string): any[] => {
+    const { members, value, base } = types[type]
+    if (members) return members
+    if (value) return membersOf(value)
+    if (base) return membersOf(base)
+    return []
+  }
+  const variable = (entry: any): StorageVariable => ({
+    label: entry.label,
+    slot: BigInt(entry.slot),
+    offset: entry.offset,
+    type: types[entry.type].label,
+    members: membersOf(entry.type).map(variable),
+  })
+  return storage.map(variable)
 }
 
 /**
