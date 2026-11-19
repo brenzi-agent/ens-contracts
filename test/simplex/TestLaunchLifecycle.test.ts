@@ -21,7 +21,7 @@ import {
   GENERAL_TERMS,
   GENERAL_TERMS_LINK,
   implementationOf,
-  type InitializeArgs,
+  type InitializeParameters,
   MIN_REGISTRATION,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
@@ -140,7 +140,7 @@ function registration(label: string, owner: `0x${string}`, extra: any = {}) {
 async function deployProxied<ContractName extends Proxied>(
   name: ContractName,
   constructorArgs: ConstructorArgs<ContractName>,
-  initializeArgs?: NoInfer<InitializeArgs<ContractName>>,
+  ...initialize: NoInfer<InitializeParameters<ContractName>>
 ) {
   proxied[name] = {
     ...(await deployBehindProxy(
@@ -148,7 +148,7 @@ async function deployProxied<ContractName extends Proxied>(
       name,
       constructorArgs,
       admin.address,
-      initializeArgs,
+      ...initialize,
     )),
     deployImplementation: () =>
       connection.viem.deployContract(name, constructorArgs),

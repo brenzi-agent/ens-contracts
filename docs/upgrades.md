@@ -144,10 +144,10 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    the preceding slot, so `__gap` is unchanged by a `bool` after
    `SimplexController.namePolicy` (slot 169, offset 20). In a contract without
    `__gap`, a new variable is declared after the last one. Only the most
-   derived contract gains variables: one added to a base contract, such as
-   `PublicResolver` or one of its profiles, `ERC721`, `ERC721Enumerable` or
-   `Ownable` in a merge from upstream ENS, moves every variable declared after
-   it.
+   derived contract gains variables: one added to a base contract moves every
+   variable declared after it, as `PublicResolver` or one of its profiles can
+   gain one in a merge from upstream ENS, and `ERC721`, `ERC721Enumerable` or
+   `Ownable` in an upgrade of the OpenZeppelin dependency.
 2. **The label, slot, offset and type of an existing variable are unchanged.**
    Never reorder, remove, rename or retype one. The members of a stored struct
    are unchanged, and values are only appended to an enum.
@@ -155,10 +155,9 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    contract with storage — either moves storage. `Initializable` is kept at
    `@openzeppelin/contracts-upgradeable` 4.9.3 in `ENSRegistry`,
    `BaseRegistrarImplementation` and `SimplexController`: its `_initialized`
-   (in the registrar, slot 10, offset 20) is the only barrier against a second
+   (in the registrar, slot 10, offset 20) is the state that refuses a second
    `initialize`, and the state of the 5.x `Initializable` is read from an
-   ERC-7201 slot, zero in an existing proxy, so anyone could then call, for
-   example, `initialize(ens, baseNode, attacker)` on the registrar.
+   ERC-7201 slot, which is zero in an existing proxy.
 4. `constant` / `immutable` values are compiled into the implementation, not
    stored in the proxy, so an upgrade replaces them. A new implementation keeps
    the value of each immutable unless changing it is the purpose of the
@@ -170,6 +169,37 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract compares
    the runtime code of a candidate with its artifact, with the current
    immutables in place.
+5. **Every external function and event of the current implementation is kept**
+   by a candidate, with the same selector and meaning, unless removing one is
+   the purpose of the upgrade and the `INTENDED` input of
+   `scripts/prepare-upgrade.mjs` names it; the script refuses a candidate that
+   drops a selector or an event topic that `INTENDED` does not name. The other
+   contracts of the stack call the functions below, so once a caller is frozen
+   or immutable, these functions are a fixed interface.
+
+### Calls between the contracts of the stack
+
+| Called contract | Caller | Functions |
+|---|---|---|
+| `ENSRegistry` | `BaseRegistrarImplementation` | `owner`, `setResolver`, `setSubnodeOwner` |
+| `ENSRegistry` | `SimplexController` | `resolver`, `setRecord` |
+| `ENSRegistry` | `SimplexNamePolicy` | `resolver`, `setRecord` |
+| `ENSRegistry` | `SubnameRegistrar` | `owner`, `setSubnodeRecord`, `setResolver`, `setOwner` |
+| `ENSRegistry` | `SimplexResolver` | `owner` |
+| `ENSRegistry` | `Root` | `setSubnodeOwner`, `setResolver` |
+| `ENSRegistry` | `UniversalResolver` | `resolver` |
+| `BaseRegistrarImplementation` | `SimplexController` | `available`, `nameExpires`, `registerWithLabel`, `renew`, `transferFrom` |
+| `BaseRegistrarImplementation` | `SimplexNamePolicy` | `available`, `registerWithLabel`, `transferFrom` |
+| `SimplexController` | `SimplexNamePolicy` | `owner`, `beneficiary`, `defaultResolver`, `wasDefaultResolver`, `commitments`, `maxCommitmentAge`, `commit`; `ens` and `tldNode` in its constructor |
+| `SimplexController` | `SimplexSponsor` | `beneficiary`, `rentPriceUSD`, `registerSponsored`, `renewSponsored` |
+| `SubnameRegistrar` | `BaseRegistrarImplementation`, as its subname hook | `onReregister`, `onExpiryChanged` |
+| `SubnameRegistrar` | `SimplexResolver`, through its wrapper slot | `ownerOf(uint256)` |
+| `SimplexResolver` | `SubnameRegistrar` | `clearSubnameRecords` |
+| `SimplexResolver` | `SimplexController` | `clearRecords`, `multicallWithNodeCheck` |
+| `SimplexResolver` | `SimplexNamePolicy` | `clearRecords` |
+| `SimplexResolver` | `UniversalResolver` | `supportsInterface` and the resolver functions requested through it |
+| `SimplexNamePolicy` | `SimplexController` | `controller`, `isReserved`, `communityNames`, `consumeRegistration` |
+| `SimplexNamePolicy` | `BaseRegistrarImplementation` | `registrar`, `consumeTransfer` |
 
 ### Adding a variable — example
 
@@ -207,13 +237,16 @@ it is moved and `__gap` is untouched.
       storage, the ERC-1967 slots included.
 - [ ] **Review the new code for state written at construction.** A constructor
       or the initializer of a state variable writes the implementation's
-      storage, never the proxy's. A new implementation adds no such write;
-      state it needs is written by a function passed as the `data` of
-      `ProxyAdmin.upgradeAndCall`. The registry's root owner and the
-      registrar's `ens`, `baseNode` and owner, written by their constructors,
-      reach a proxy only because `initialize` writes them again at deployment.
-      `constant` and `immutable` values are exempt (invariant 4). The function
-      passed as `data` runs with the `ProxyAdmin` as `msg.sender`: an
+      storage, never the proxy's. State that the proxy needs is written by a
+      function passed as the `data` of `ProxyAdmin.upgradeAndCall`, never by
+      the constructor. The registry's root owner and the registrar's `ens`,
+      `baseNode` and owner, written by their constructors, reach a proxy only
+      because `initialize` writes them again at deployment. The constructors of
+      `ENSRegistry`, `BaseRegistrarImplementation` and `SimplexController`
+      keep `_disableInitializers()`, and `scripts/prepare-upgrade.mjs` refuses
+      a candidate whose `_initialized` is not 255. `constant` and `immutable`
+      values are exempt (invariant 4). The function passed as `data` runs with
+      the `ProxyAdmin` as `msg.sender`: an
       `onlyOwner` function reverts there, a function that records its caller
       records the `ProxyAdmin`, and with `SimplexResolver.multicall` as `data`,
       `upgradeAndCall` reverts `FailedCall()`: each `delegatecall` of
@@ -229,14 +262,15 @@ it is moved and `__gap` is untouched.
 - [ ] **Guard the function passed as `data`.** In each of the six contracts it
       reverts unless `msg.sender` equals the immutable `_proxyAdmin`, the
       proxy's `ProxyAdmin` (its CREATE address at nonce 1), passed to the new
-      implementation as a constructor argument. In `ENSRegistry`,
-      `BaseRegistrarImplementation` and `SimplexController` it is also a
-      `reinitializer(n)`. `scripts/prepare-upgrade.mjs` passes the proxy's
-      `ProxyAdmin` automatically to a constructor input named `_proxyAdmin`,
-      checks the immutable `_proxyAdmin` against that `ProxyAdmin`, refuses a
-      non-empty `data` for a candidate without a `_proxyAdmin` immutable,
-      refuses code that contains an ERC-1967 slot, encodes the `data`, and
-      simulates the upgrade.
+      implementation as the constructor input `proxyAdmin`; an input named
+      `_proxyAdmin` would shadow the immutable and leave it zero. In
+      `ENSRegistry`, `BaseRegistrarImplementation` and `SimplexController` it is
+      also a `reinitializer(n)`. `scripts/prepare-upgrade.mjs` passes the
+      proxy's `ProxyAdmin` automatically to a constructor input named
+      `proxyAdmin`, checks the immutable `_proxyAdmin` against that
+      `ProxyAdmin`, refuses a non-empty `data` for a candidate without a
+      `_proxyAdmin` immutable, refuses code that contains an ERC-1967 slot,
+      encodes the `data`, and simulates the upgrade.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
