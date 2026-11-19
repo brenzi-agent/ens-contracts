@@ -527,24 +527,25 @@ describe('reversible payments', () => {
       await mineAt(previous - 60n * DAY)
       const at = previous - 60n * DAY + 1000n
       const horizon = await f.controller.read.MAX_REGISTRATION_DURATION()
-      const over = at + horizon - previous + 1n
-      const within = at + 1n + horizon - previous
-      const signed: Awaited<ReturnType<typeof signRenewal>>[] = []
-      for (const duration of [over, within]) {
-        await f.namePolicy.write.acceptCommunityTermsForRenewal(
-          [id('community'), previous, duration, COMMUNITY_TERMS],
-          { account: alice },
-        )
-        signed.push(
-          await signRenewal(connection, f.sponsor, 'community', duration, alice.address, DAYS),
-        )
-      }
+      const toHorizonFromNextSecond = at + 1n + horizon - previous
+      await f.namePolicy.write.acceptCommunityTermsForRenewal(
+        [id('community'), previous, toHorizonFromNextSecond, COMMUNITY_TERMS],
+        { account: alice },
+      )
+      const args = await signRenewal(
+        connection,
+        f.sponsor,
+        'community',
+        toHorizonFromNextSecond,
+        alice.address,
+        DAYS,
+      )
       await exactly(at)
       await expect(
-        f.sponsor.write.renewWithCredit(signed[0], { account: registrar, ...EXACT }),
+        f.sponsor.write.renewWithCredit(args, { account: registrar, ...EXACT }),
       ).toBeRevertedWithCustomErrorFrom(f.controller, 'DurationTooLong')
       await exactly(at + 1n)
-      await f.sponsor.write.renewWithCredit(signed[1], { account: registrar, ...EXACT })
+      await f.sponsor.write.renewWithCredit(args, { account: registrar, ...EXACT })
       expect(await expires(f, 'community')).toBe(at + 1n + DAYS * DAY + WINDOW)
       expect((await payment(f, 'community'))[1]).toBe(at + 1n + horizon)
     })
@@ -667,25 +668,27 @@ describe('reversible payments', () => {
       expect(await expires(f, 'reversedrenew')).toBe(r.E + YEAR)
     })
 
-    it('replaces the entry of a reversed renewal by a reversible renewal that keeps the expiry', async () => {
+    it('refuses a reversible renewal while a reversed renewal is in effect', async () => {
       const f = await load()
-      const first = await register(f, 'replaced', { days: 0n })
-      await renew(f, 'replaced')
-      await reverse(f, ['replaced'])
-      const second = await renew(f, 'replaced')
-      expect(await expires(f, 'replaced')).toBe(first.paid)
-      expect(await payment(f, 'replaced')).toEqual([
-        second.until,
-        first.paid + YEAR,
+      const first = await register(f, 'reversedonce', { days: 0n })
+      await renew(f, 'reversedonce')
+      await reverse(f, ['reversedonce'])
+      await acceptRenewal(f, 'reversedonce')
+      await expect(
+        f.sponsor.write.renewWithCredit(
+          await signRenewal(connection, f.sponsor, 'reversedonce', YEAR, alice.address, DAYS),
+          { account: registrar },
+        ),
+      ).toBeRevertedWithCustomErrorFrom(f.settlement, 'RenewalReversed')
+      await reinstate(f, ['reversedonce'])
+      expect(await expires(f, 'reversedonce')).toBe(first.paid + YEAR)
+      const next = await renew(f, 'reversedonce')
+      expect(await payment(f, 'reversedonce')).toEqual([
+        next.until,
+        first.paid + 2n * YEAR,
         false,
         true,
       ])
-      await expect(reinstate(f, ['replaced']))
-        .toEmitEvent('NamePaymentReinstatementSkipped')
-        .withArgs({ label: 'replaced' })
-      await mineAt(second.until)
-      await settle(f, 'replaced')
-      expect(await expires(f, 'replaced')).toBe(first.paid + YEAR)
     })
 
     it('reinstates the deferred term of a reversed renewal until the expiry changes', async () => {
@@ -1097,7 +1100,7 @@ describe('reversible payments', () => {
       await acceptRenewal(f, 'soldearly', bob)
       await expect(
         payRenewal(f, 'soldearly', bob),
-      ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'PaymentNotSettled')
+      ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'PaymentReversed')
     })
 
     it('moves the name on a claim from reversibleUntil to E, and a reversal then skips it', async () => {
