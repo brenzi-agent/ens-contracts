@@ -7,6 +7,8 @@ import type { NetworkConnection } from 'hardhat/types/network'
 import { readFile } from 'node:fs/promises'
 import {
   type Abi,
+  type ContractFunctionArgs,
+  type ContractFunctionName,
   encodeFunctionData,
   getAddress,
   keccak256,
@@ -98,6 +100,16 @@ export async function proxyAdminOf(
   )
 }
 
+export type InitializeArgs<ContractName extends keyof ContractAbis> =
+  ContractFunctionArgs<
+    ContractAbis[ContractName],
+    'nonpayable',
+    Extract<
+      ContractFunctionName<ContractAbis[ContractName], 'nonpayable'>,
+      'initialize'
+    >
+  >
+
 export async function deployBehindProxy<
   ContractName extends keyof ContractAbis,
 >(
@@ -105,7 +117,7 @@ export async function deployBehindProxy<
   contractName: ContractName,
   constructorArgs: ConstructorArgs<ContractName>,
   initialOwner: `0x${string}`,
-  initializeArgs?: readonly unknown[],
+  initializeArgs?: InitializeArgs<ContractName>,
 ) {
   const implementation = await connection.viem.deployContract(
     contractName,
@@ -120,7 +132,7 @@ export async function deployBehindProxy<
         ? encodeFunctionData({
             abi: implementation.abi as Abi,
             functionName: 'initialize',
-            args: initializeArgs,
+            args: initializeArgs as readonly unknown[],
           })
         : '0x',
     ],

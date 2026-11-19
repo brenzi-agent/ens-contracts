@@ -10,6 +10,9 @@ Each of these contracts is deployed behind its own OpenZeppelin 5.1.0
 - `SimplexController`
 - `SimplexNamePolicy`
 
+The `.testing` controller, a UUPS proxy, is upgraded under `docs/upgrades.md`
+at tag `simplex-mainnet-testing-v3`, the source of its fixes.
+
 Each proxy creates its own `ProxyAdmin` in its constructor; the address of the
 `ProxyAdmin` is an immutable of the proxy. The owner of the `ProxyAdmin`
 upgrades the proxy with
@@ -43,9 +46,9 @@ flowchart LR
 - The addresses of the implementation and of the admin are stored at the
   ERC-1967 slots, `keccak256("eip1967.proxy.implementation") - 1` and
   `keccak256("eip1967.proxy.admin") - 1`, outside the sequential layout.
-- A call from the `ProxyAdmin` reaches only `upgradeToAndCall`; any other
-  function it calls reverts `ProxyDeniedAdminAccess`. A call from any other
-  address is delegated to the implementation.
+- For a call from the `ProxyAdmin`, only `upgradeToAndCall` is executed; any
+  other call from it is reverted with `ProxyDeniedAdminAccess`. A call from any
+  other address is delegated to the implementation.
 - An implementation must not declare `upgradeTo(address)`,
   `upgradeToAndCall(address,bytes)` or `proxiableUUID()`, so that the
   `ProxyAdmin` stays the only upgrade path.
@@ -83,9 +86,11 @@ contract SimplexController is
     Initializable, Ownable2StepUpgradeable, IETHRegistrarController, ERC165
 ```
 
-The OZ upgradeable parents (`Initializable`, `Ownable2Step`) reserve their own
-slots and carry their own gaps — leave them alone. They occupy slots 0 to 150,
-so this contract's own variables start at slot 151. After them come
+Slots 0 to 150 are taken by the OZ upgradeable parents and are left alone: slot
+0 by `Initializable`, which has no `__gap`, and slots 1 to 150 by
+`ContextUpgradeable`, `OwnableUpgradeable` and `Ownable2StepUpgradeable`, each
+with its own `__gap`. This contract's own variables start at slot 151. After
+them come
 `ens`, `base`, `minCommitmentAge`, `maxCommitmentAge`, two reserved slots
 (below), `prices`, `tldNode`, `tldSuffix`, `commitments`, `minCharLength`,
 `_unusedReservedNames`, `smpxNft` + `nftGateEnabled` + `_unusedPriceOracleFrozen`
@@ -213,15 +218,21 @@ it is moved and `__gap` is untouched.
       `multicall` to `address(this)` is executed by the proxy's code with the
       same `msg.sender` and reverts `ProxyDeniedAdminAccess`, an error discarded
       by `require(success)`.
-- [ ] **Guard the function passed as `data`.** In `ENSRegistry`,
-      `BaseRegistrarImplementation` and `SimplexController` it is a
-      `reinitializer(n)`. `SimplexNamePolicy`, `SubnameRegistrar` and
-      `SimplexResolver` lack `Initializable`, which invariant 3 keeps out:
-      there it reverts unless `msg.sender` is the proxy's `ProxyAdmin`. The new
-      implementation receives that address, the CREATE address of the proxy at
-      nonce 1, as a constructor argument and keeps it in an immutable;
-      `scripts/prepare-upgrade.mjs` refuses code that reads the ERC-1967 admin
-      slot.
+- [ ] **Review the new immutables.** A new immutable is assigned from
+      constructor arguments only: at construction, `address(this)` is the
+      implementation and `msg.sender` its deployer, so a domain separator or an
+      owner derived from either is wrong under the proxy.
+      `SimplexNamePolicy._self` and `SubnameRegistrar._deployer` hold the
+      implementation and its deployer by design.
+- [ ] **Guard the function passed as `data`.** In each of the six contracts it
+      reverts unless `msg.sender` equals the immutable `_proxyAdmin`, the
+      proxy's `ProxyAdmin` (its CREATE address at nonce 1), passed to the new
+      implementation as a constructor argument. In `ENSRegistry`,
+      `BaseRegistrarImplementation` and `SimplexController` it is also a
+      `reinitializer(n)`. `scripts/prepare-upgrade.mjs` encodes the `data`,
+      passes the `ProxyAdmin` to the constructor, checks `_proxyAdmin` against
+      the proxy's `ProxyAdmin`, refuses code that contains an ERC-1967 slot,
+      and simulates the upgrade.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
@@ -234,7 +245,8 @@ The name policy (reserved names, community names, terms links, acceptances) sits
 behind its own `TransparentUpgradeableProxy`. Its immutable `controller()` and
 `registrar()` bind it to one controller and one registrar;
 `scripts/prepare-upgrade.mjs` refuses a candidate whose `controller()` or
-`registrar()` differs from the current one. Its own variables are
+`registrar()` differs from the current one, unless its `INTENDED` input names
+that immutable for an intended change. Its own variables are
 `_names` (each name's community flag and reservation reason, in one slot),
 `communityTermsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`,
 `communityTermsLink`, `generalTermsLink`, `generalTermsHash`, then
