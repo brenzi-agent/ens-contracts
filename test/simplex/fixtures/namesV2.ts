@@ -1,9 +1,13 @@
+import type { ConstructorArgs } from '@nomicfoundation/hardhat-viem/types'
 import type { NetworkConnection } from 'hardhat/types/network'
 import {
+  type Abi,
   encodeFunctionData,
+  getAddress,
   keccak256,
   labelhash,
   namehash,
+  slice,
   toHex,
   zeroAddress,
   zeroHash,
@@ -61,6 +65,66 @@ export const GENERAL_TERMS = keccak256(toHex(GENERAL_TERMS_LINK))
 export const COMMUNITY_TERMS_LINK = termsLink('community-terms.md', '2')
 export const COMMUNITY_TERMS = keccak256(toHex(COMMUNITY_TERMS_LINK))
 
+const erc1967Slot = (name: string) =>
+  toHex(BigInt(keccak256(toHex(`eip1967.proxy.${name}`))) - 1n, { size: 32 })
+
+async function addressInSlot(
+  connection: NetworkConnection,
+  proxy: `0x${string}`,
+  slot: `0x${string}`,
+) {
+  const publicClient = await connection.viem.getPublicClient()
+  const word = await publicClient.getStorageAt({ address: proxy, slot })
+  return getAddress(slice(word!, 12))
+}
+
+export const implementationOf = (
+  connection: NetworkConnection,
+  proxy: `0x${string}`,
+) => addressInSlot(connection, proxy, erc1967Slot('implementation'))
+
+export async function proxyAdminOf(
+  connection: NetworkConnection,
+  proxy: `0x${string}`,
+) {
+  return connection.viem.getContractAt(
+    'ProxyAdmin',
+    await addressInSlot(connection, proxy, erc1967Slot('admin')),
+  )
+}
+
+export async function deployBehindProxy<ContractName extends string>(
+  connection: NetworkConnection,
+  contractName: ContractName,
+  constructorArgs: ConstructorArgs<ContractName>,
+  initialOwner: `0x${string}`,
+  initializeArgs?: readonly unknown[],
+) {
+  const implementation = await connection.viem.deployContract(
+    contractName,
+    constructorArgs,
+  )
+  const proxy = await connection.viem.deployContract(
+    'TransparentUpgradeableProxy',
+    [
+      implementation.address,
+      initialOwner,
+      initializeArgs
+        ? encodeFunctionData({
+            abi: implementation.abi as Abi,
+            functionName: 'initialize',
+            args: initializeArgs,
+          })
+        : '0x',
+    ],
+  )
+  return {
+    contract: await connection.viem.getContractAt(contractName, proxy.address),
+    implementation,
+    proxyAdmin: await proxyAdminOf(connection, proxy.address),
+  }
+}
+
 /**
  * The full `.simplex` stack, wired as `deploy-simplex.mjs` will wire it:
  * SimplexResolver in place of PublicResolver, the SubnameRegistrar in the
@@ -78,10 +142,20 @@ export async function deployNamesV2(
   },
 ) {
   const viem = connection.viem
-  const ens = await viem.deployContract('ENSRegistry', [])
-  const baseRegistrar = await viem.deployContract(
+  const [deployer] = await viem.getWalletClients()
+  const { contract: ens } = await deployBehindProxy(
+    connection,
+    'ENSRegistry',
+    [],
+    accounts.owner,
+    [deployer.account.address],
+  )
+  const { contract: baseRegistrar } = await deployBehindProxy(
+    connection,
     'BaseRegistrarImplementation',
     [ens.address, TLD_NODE],
+    accounts.owner,
+    [ens.address, TLD_NODE, deployer.account.address],
   )
   await ens.write.setSubnodeOwner([zeroHash, labelhash(TLD), baseRegistrar.address])
 
@@ -97,11 +171,12 @@ export async function deployNamesV2(
     PRICE_EXCEPTIONS,
   ])
 
-  const implementation = await viem.deployContract('SimplexController', [])
-  const initData = encodeFunctionData({
-    abi: implementation.abi,
-    functionName: 'initialize',
-    args: [
+  const { contract: controller, implementation } = await deployBehindProxy(
+    connection,
+    'SimplexController',
+    [],
+    accounts.owner,
+    [
       baseRegistrar.address,
       priceOracle.address,
       1n, // minCommitmentAge: must be non-zero; 1s means a separate block suffices
@@ -116,23 +191,25 @@ export async function deployNamesV2(
       },
       accounts.owner,
     ],
-  })
-  const proxy = await viem.deployContract('SimplexControllerProxy', [
-    implementation.address,
-    initData,
-  ])
-  const controller = await viem.getContractAt('SimplexController', proxy.address)
+  )
 
-  const subnameRegistrar = await viem.deployContract('SubnameRegistrar', [
-    ens.address,
-    baseRegistrar.address,
-  ])
-  const resolver = await viem.deployContract('SimplexResolver', [
-    ens.address,
-    subnameRegistrar.address, // wrapper slot: subname authorisation routes here
-    controller.address, // trustedETHController
-    zeroAddress, // trustedReverseRegistrar: unused, and inert at address(0)
-  ])
+  const { contract: subnameRegistrar } = await deployBehindProxy(
+    connection,
+    'SubnameRegistrar',
+    [ens.address, baseRegistrar.address],
+    accounts.owner,
+  )
+  const { contract: resolver } = await deployBehindProxy(
+    connection,
+    'SimplexResolver',
+    [
+      ens.address,
+      subnameRegistrar.address, // wrapper slot: subname authorisation routes here
+      controller.address, // trustedETHController
+      zeroAddress, // trustedReverseRegistrar: unused, and inert at address(0)
+    ],
+    accounts.owner,
+  )
   await subnameRegistrar.write.setResolver([resolver.address])
 
   await baseRegistrar.write.addController([controller.address])
@@ -179,16 +256,13 @@ export async function deployNamePolicy(
   baseRegistrar: any,
   owner: `0x${string}`,
 ) {
-  const viem = connection.viem
-  const namePolicyImplementation = await viem.deployContract('SimplexNamePolicy', [
-    controller.address,
-    baseRegistrar.address,
-  ])
-  const namePolicyProxy = await viem.deployContract('SimplexNamePolicyProxy', [
-    namePolicyImplementation.address,
-    '0x',
-  ])
-  const namePolicy = await viem.getContractAt('SimplexNamePolicy', namePolicyProxy.address)
+  const { contract: namePolicy, implementation: namePolicyImplementation } =
+    await deployBehindProxy(
+      connection,
+      'SimplexNamePolicy',
+      [controller.address, baseRegistrar.address],
+      owner,
+    )
   await baseRegistrar.write.addController([namePolicy.address])
   await controller.write.setNamePolicy([namePolicy.address], {
     account: owner,
