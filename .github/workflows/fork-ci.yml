@@ -72,6 +72,6 @@ jobs:
 
       - name: Type-check of test/simplex
         run: |
-          echo '{"extends":"./tsconfig.json","include":["./test/simplex/**/*.ts","./typings-custom/**/*.ts","./artifacts/**/*.d.ts"]}' > tsconfig.tests.json
+          echo '{"extends":"./tsconfig.json","include":["./test/simplex/**/*.ts","./test/setup.ts","./typings-custom/**/*.ts","./artifacts/**/*.d.ts","./artifacts/node_modules/**/*.d.ts"]}' > tsconfig.tests.json
           pnpm exec tsc --noEmit -p tsconfig.tests.json | sed -E 's/^([^(]+)\(.*/\1/' | sort | uniq -c
           pnpm exec tsc --noEmit -p tsconfig.tests.json
