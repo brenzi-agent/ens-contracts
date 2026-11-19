@@ -531,7 +531,8 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         uint256 tokenId = uint256(labelhash);
         uint256 expires = registrar.nameExpires(tokenId);
         if (!_holds(holder, tokenId, expires)) revert NotHolder(label);
-        (uint256 reversibleUntil, , , ) = settlement.reversiblePayment(tokenId);
+        (uint256 reversibleUntil, , bool reversed, ) = settlement.reversiblePayment(tokenId);
+        if (reversed) revert PaymentReversed(label);
         if (reversibleUntil != 0) revert PaymentNotSettled(label);
         bytes32 accepted = acceptedRenewalTerms[tokenId][holder][expires][duration];
         delete acceptedRenewalTerms[tokenId][holder][expires][duration];

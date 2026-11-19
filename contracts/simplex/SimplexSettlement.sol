@@ -47,6 +47,7 @@ contract SimplexSettlement is ISettlement, UUPSUpgradeable {
     error NotReversible(string label);
     error ReversiblePeriodNotEnded(string label);
     error PaymentReversed(string label);
+    error RenewalReversed(bytes32 labelhash);
 
     constructor(
         SimplexController _controller,
@@ -66,6 +67,9 @@ contract SimplexSettlement is ISettlement, UUPSUpgradeable {
         if (address(this) == _self) revert NotProxy();
         if (reversibleDays > MAX_REVERSIBLE_DAYS)
             revert ReversibleDaysTooMany(reversibleDays);
+        Entry memory current = _entries[id];
+        if (current.reversed && _inEffect(id, current))
+            revert RenewalReversed(bytes32(id));
         uint256 start = renewal ? registrar.nameExpires(id) : block.timestamp;
         uint256 reversibleUntil = block.timestamp + reversibleDays * 1 days;
         uint256 firstExpiry = reversibleUntil + SETTLEMENT_WINDOW;
