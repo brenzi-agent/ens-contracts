@@ -53,6 +53,7 @@ async function fixture() {
     'alicechat',
     aliceAccount.address,
     DURATION,
+    0n,
   ])
   return { ensRegistry, baseRegistrar, resolver }
 }

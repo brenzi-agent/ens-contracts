@@ -42,6 +42,7 @@ contract BaseRegistrarImplementation is
     // subnames are invalidated/garbage-collectable. Optional (0 = disabled).
     address public subnameHook;
     address public namePolicy;
+    mapping(uint256 => uint256) public disputeUntil;
     // The ENS registry
     ENS public ens;
     // The namehash of the TLD this registrar owns (eg, .eth)
@@ -58,9 +59,11 @@ contract BaseRegistrarImplementation is
     event MaxLabelLengthChanged(uint256 maxLabelLength);
     event SubnameHookChanged(address indexed hook);
     event NamePolicyChanged(address indexed namePolicy);
+    event NameUnregistered(uint256 indexed id);
 
     error LabelTooLong(uint256 length, uint256 max);
     error NamePolicyMismatch();
+    error DisputePeriodOver(uint256 id);
 
     /// v2.1.3 version of _isApprovedOrOwner which calls ownerOf(tokenId) and takes grace period into consideration instead of ERC721.ownerOf(tokenId);
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v2.1.3/contracts/token/ERC721/ERC721.sol#L187
@@ -146,7 +149,8 @@ contract BaseRegistrarImplementation is
     function registerWithLabel(
         string calldata label,
         address owner,
-        uint256 duration
+        uint256 duration,
+        uint256 disputePeriod
     ) external returns (uint256) {
         if (maxLabelLength != 0 && bytes(label).length > maxLabelLength)
             revert LabelTooLong(bytes(label).length, maxLabelLength);
@@ -154,6 +158,7 @@ contract BaseRegistrarImplementation is
         if (bytes(labelOf[id]).length == 0) {
             labelOf[id] = label;
         }
+        disputeUntil[id] = block.timestamp + disputePeriod;
         return _register(id, owner, duration);
     }
 
@@ -219,6 +224,20 @@ contract BaseRegistrarImplementation is
         }
         emit NameRenewed(id, expiries[id]);
         return expiries[id];
+    }
+
+    function unregister(uint256 id) external live onlyController {
+        if (block.timestamp >= disputeUntil[id]) revert DisputePeriodOver(id);
+        delete disputeUntil[id];
+        expiries[id] = 0;
+        ens.setSubnodeOwner(baseNode, bytes32(id), address(0));
+        if (subnameHook != address(0)) {
+            ISubnameHook(subnameHook).onExpiryChanged(
+                keccak256(abi.encodePacked(baseNode, bytes32(id))),
+                0
+            );
+        }
+        emit NameUnregistered(id);
     }
 
     /// @dev Reclaim ownership of a name in ENS, if you own it in the registrar.

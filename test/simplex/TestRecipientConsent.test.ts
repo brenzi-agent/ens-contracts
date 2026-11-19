@@ -17,6 +17,7 @@ import {
   commitUnderGeneralTerms,
   deployNamesV2,
   FAR_FUTURE,
+  MIN_DISPUTE_DAYS,
   MIN_REGISTRATION,
   node,
   registerWithCredit,
@@ -87,7 +88,7 @@ describe('recipient consent', () => {
       expect(await sponsor.read.REGISTER_TYPEHASH()).toBe(
         keccak256(
           toHex(
-            'RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 nonce,uint256 deadline)',
+            'RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 disputeDays,uint256 nonce,uint256 deadline)',
           ),
         ),
       )
@@ -120,7 +121,7 @@ describe('recipient consent', () => {
       const reg = registration('nosigname', bob.address)
       await commit(controller, reg)
       await expect(
-        sponsor.write.registerWithCredit([reg, 0n, FAR_FUTURE, '0x'], {
+        sponsor.write.registerWithCredit([reg, MIN_DISPUTE_DAYS, 0n, FAR_FUTURE, '0x'], {
           account: registrar,
         }),
       ).toBeRevertedWithCustomError('InvalidSignature')
@@ -139,7 +140,7 @@ describe('recipient consent', () => {
       const signed = registration('signedname', bob.address, {
         resolver: resolver.address,
       })
-      const [, nonce, deadline, sig] = await signRegistration(
+      const [, disputeDays, nonce, deadline, sig] = await signRegistration(
         connection,
         sponsor,
         signed,
@@ -162,13 +163,13 @@ describe('recipient consent', () => {
       for (const reg of tampered) {
         await commit(controller, reg)
         await expect(
-          sponsor.write.registerWithCredit([reg, nonce, deadline, sig], {
+          sponsor.write.registerWithCredit([reg, disputeDays, nonce, deadline, sig], {
             account: registrar,
           }),
         ).toBeRevertedWithCustomError('InvalidSignature')
       }
       await commit(controller, signed)
-      await sponsor.write.registerWithCredit([signed, nonce, deadline, sig], {
+      await sponsor.write.registerWithCredit([signed, disputeDays, nonce, deadline, sig], {
         account: registrar,
       })
       expect(
@@ -178,7 +179,7 @@ describe('recipient consent', () => {
 
     it('leaves the secret to the payer', async () => {
       const { controller, sponsor, baseRegistrar } = await load()
-      const [signed, nonce, deadline, sig] = await signRegistration(
+      const [signed, disputeDays, nonce, deadline, sig] = await signRegistration(
         connection,
         sponsor,
         registration('payername', bob.address),
@@ -188,7 +189,7 @@ describe('recipient consent', () => {
         secret: keccak256(toHex('chosen later')),
       }
       await commit(controller, reg)
-      await sponsor.write.registerWithCredit([reg, nonce, deadline, sig], {
+      await sponsor.write.registerWithCredit([reg, disputeDays, nonce, deadline, sig], {
         account: registrar,
       })
       expect(
@@ -232,7 +233,7 @@ describe('recipient consent', () => {
       const reg = registration('directname', registrar.address)
       await commit(controller, reg)
       await expect(
-        controller.write.registerSponsored([reg], { account: registrar }),
+        controller.write.registerSponsored([reg, MIN_DISPUTE_DAYS], { account: registrar }),
       ).toBeRevertedWithCustomError('NotSponsor')
       await expect(
         controller.write.renewSponsored(
@@ -246,7 +247,7 @@ describe('recipient consent', () => {
       const { controller, sponsor, baseRegistrar } = await load()
       const reg = registration('selfname', registrar.address)
       await commit(controller, reg)
-      await sponsor.write.registerWithCredit([reg, 0n, 0n, '0x'], {
+      await sponsor.write.registerWithCredit([reg, MIN_DISPUTE_DAYS, 0n, 0n, '0x'], {
         account: registrar,
       })
       expect(
