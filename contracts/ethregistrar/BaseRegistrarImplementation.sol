@@ -42,7 +42,6 @@ contract BaseRegistrarImplementation is
     // subnames are invalidated/garbage-collectable. Optional (0 = disabled).
     address public subnameHook;
     address public namePolicy;
-    mapping(uint256 => uint256) public disputeUntil;
     // The ENS registry
     ENS public ens;
     // The namehash of the TLD this registrar owns (eg, .eth)
@@ -158,7 +157,7 @@ contract BaseRegistrarImplementation is
         if (bytes(labelOf[id]).length == 0) {
             labelOf[id] = label;
         }
-        disputeUntil[id] = block.timestamp + disputePeriod;
+        disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp + disputePeriod;
         return _register(id, owner, duration);
     }
 
@@ -230,7 +229,7 @@ contract BaseRegistrarImplementation is
         if (block.timestamp >= disputeUntil[id]) revert DisputePeriodOver(id);
         delete disputeUntil[id];
         expiries[id] = 0;
-        ens.setSubnodeOwner(baseNode, bytes32(id), address(0));
+        ens.setSubnodeRecord(baseNode, bytes32(id), address(0), address(0), 0);
         if (subnameHook != address(0)) {
             ISubnameHook(subnameHook).onExpiryChanged(
                 keccak256(abi.encodePacked(baseNode, bytes32(id))),
@@ -343,6 +342,8 @@ contract BaseRegistrarImplementation is
     /// @dev The number of the current offer for each token, incremented by every
     ///      `approve`, so a claim signature is valid for one offer and no later one.
     mapping(uint256 => uint256) public offers;
+
+    mapping(uint256 => uint256) public disputeUntil;
 
     /// @dev ERC-5564 `Announcement`, verbatim in name, parameter list and
     ///      indexing, so any indexer that knows the standard decodes ours by

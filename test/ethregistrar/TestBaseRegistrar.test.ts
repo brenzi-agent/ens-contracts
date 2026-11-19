@@ -32,7 +32,7 @@ const loadFixture = async () => connection.networkHelpers.loadFixture(fixture)
 async function fixtureWithRegistration() {
   const existing = await loadFixture()
   await existing.baseRegistrar.write.registerWithLabel(
-    ['newname', registrantAccount.address, 86400n],
+    ['newname', registrantAccount.address, 86400n, 0n],
     {
       account: controllerAccount,
     },
@@ -47,7 +47,7 @@ describe('BaseRegistrar', () => {
     const { ensRegistry, baseRegistrar } = await loadFixture()
 
     const hash = await baseRegistrar.write.registerWithLabel(
-      ['newname', registrantAccount.address, 86400n],
+      ['newname', registrantAccount.address, 86400n, 0n],
       {
         account: controllerAccount,
       },
@@ -87,7 +87,7 @@ describe('BaseRegistrar', () => {
 
     await expect(
       baseRegistrar.write.registerWithLabel(
-        ['foo', otherAccount.address, 86400n],
+        ['foo', otherAccount.address, 86400n, 0n],
         {
           account: otherAccount,
         },
@@ -110,7 +110,7 @@ describe('BaseRegistrar', () => {
 
     await expect(
       baseRegistrar.write.registerWithLabel(
-        ['newname', registrantAccount.address, 86400n],
+        ['newname', registrantAccount.address, 86400n, 0n],
         {
           account: controllerAccount,
         },
@@ -255,7 +255,7 @@ describe('BaseRegistrar', () => {
     ).toBeRevertedWithoutReason()
 
     await baseRegistrar.write.registerWithLabel(
-      ['newname', otherAccount.address, 86400n],
+      ['newname', otherAccount.address, 86400n, 0n],
       {
         account: controllerAccount,
       },
