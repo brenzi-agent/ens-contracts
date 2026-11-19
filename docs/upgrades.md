@@ -35,7 +35,7 @@ delegated to them and applied to the contract's own ownership.
 
 ```mermaid
 flowchart LR
-  Owner[ProxyAdmin owner] -->|upgradeAndCall, renounceOwnership| PA[ProxyAdmin]
+  Owner[ProxyAdmin owner] -->|upgradeAndCall, renounceOwnership, transferOwnership| PA[ProxyAdmin]
   PA -->|upgradeToAndCall| P[TransparentUpgradeableProxy]
   Caller[every other caller, the ProxyAdmin owner included] -->|any call| P
   P -.->|delegatecall| I[implementation]
