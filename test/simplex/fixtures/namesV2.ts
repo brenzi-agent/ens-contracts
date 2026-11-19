@@ -117,7 +117,7 @@ export async function deployBehindProxy<
   contractName: ContractName,
   constructorArgs: ConstructorArgs<ContractName>,
   initialOwner: `0x${string}`,
-  initializeArgs?: InitializeArgs<ContractName>,
+  initializeArgs?: NoInfer<InitializeArgs<ContractName>>,
 ) {
   const implementation = await connection.viem.deployContract(
     contractName,

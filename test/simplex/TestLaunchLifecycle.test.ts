@@ -134,7 +134,7 @@ function registration(label: string, owner: `0x${string}`, extra: any = {}) {
 async function deployProxied<ContractName extends keyof ContractAbis>(
   name: ContractName,
   constructorArgs: ConstructorArgs<ContractName>,
-  initializeArgs?: InitializeArgs<ContractName>,
+  initializeArgs?: NoInfer<InitializeArgs<ContractName>>,
 ) {
   proxied[name] = {
     ...(await deployBehindProxy(
