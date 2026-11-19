@@ -292,7 +292,48 @@ describe('launch lifecycle', () => {
         controller.write.setBeneficiary([bob.address], { account: deployKey }),
       ).toBeRevertedWithCustomError('NotBeneficiary')
     })
+  })
 
+  describe('2. the a-priori reservation — 3000 names, by the deploy key', () => {
+    it(`reserves ${APRIORI_COUNT} names in batches of ${APRIORI_BATCH}`, async () => {
+      // A reserved name costs about 25k gas. The batch is 150 rather than the
+      // 300 the deployment plans, because Hardhat caps a transaction at 2^24 gas
+      // against the *estimate*, and its estimator runs about 3x over actual for
+      // a loop like this. The assertion below pins the real figure.
+      let totalGas = 0n
+      for (let i = 0; i < aPriori.length; i += APRIORI_BATCH) {
+        const hash = await namePolicy.write.addReservedNames([
+          aPriori.slice(i, i + APRIORI_BATCH),
+          TRADEMARK,
+        ])
+        totalGas += (await publicClient.getTransactionReceipt({ hash })).gasUsed
+      }
+      const perName = totalGas / BigInt(APRIORI_COUNT)
+      // recorded so the deployment plan's gas budget can be checked against it
+      expect(perName).toBeLessThan(30000n)
+      for (const label of ['brand0000', 'brand1499', 'brand2999']) {
+        expect(await namePolicy.read.reservedNames([labelhash(label)])).toBe(
+          TRADEMARK,
+        )
+      }
+      expect(await namePolicy.read.reservedNames([labelhash('notabrand')])).toBe(
+        NONE,
+      )
+    }, 120000)
+
+    it('a reserved name cannot be registered by anyone', async () => {
+      const reg = registration('brand0000', alice.address)
+      await controller.write.commit(
+        [await controller.read.makeCommitment([reg])],
+        { account: alice },
+      )
+      await expect(
+        controller.write.register([reg], { account: alice, value: 0n }),
+      ).toBeRevertedWithCustomError('PublicSalesClosed')
+    })
+  })
+
+  describe('3. the read-back and the governance handover', () => {
     it('reads the six proxies back', async () => {
       for (const [
         name,
@@ -345,54 +386,23 @@ describe('launch lifecycle', () => {
       ])
     })
 
+    it('reads every a-priori reservation back', async () => {
+      expect(
+        await Promise.all(
+          aPriori.map((label) =>
+            namePolicy.read.reservedNames([labelhash(label)]),
+          ),
+        ),
+      ).toEqual(aPriori.map(() => TRADEMARK))
+    }, 120000)
+
     it('leaves sales closed and the TLD unlocked, so the deployment stays reversible', async () => {
       expect(await controller.read.publicSalesOpen()).toBe(false)
       expect(await ens.read.owner([zeroHash])).toBe(
         getAddress(deployKey.address),
       )
     })
-  })
 
-  describe('2. the a-priori reservation — 3000 names, by the deploy key', () => {
-    it(`reserves ${APRIORI_COUNT} names in batches of ${APRIORI_BATCH}`, async () => {
-      // A reserved name costs about 25k gas. The batch is 150 rather than the
-      // 300 the deployment plans, because Hardhat caps a transaction at 2^24 gas
-      // against the *estimate*, and its estimator runs about 3x over actual for
-      // a loop like this. The assertion below pins the real figure.
-      let totalGas = 0n
-      for (let i = 0; i < aPriori.length; i += APRIORI_BATCH) {
-        const hash = await namePolicy.write.addReservedNames([
-          aPriori.slice(i, i + APRIORI_BATCH),
-          TRADEMARK,
-        ])
-        totalGas += (await publicClient.getTransactionReceipt({ hash })).gasUsed
-      }
-      const perName = totalGas / BigInt(APRIORI_COUNT)
-      // recorded so the deployment plan's gas budget can be checked against it
-      expect(perName).toBeLessThan(30000n)
-      for (const label of ['brand0000', 'brand1499', 'brand2999']) {
-        expect(await namePolicy.read.reservedNames([labelhash(label)])).toBe(
-          TRADEMARK,
-        )
-      }
-      expect(await namePolicy.read.reservedNames([labelhash('notabrand')])).toBe(
-        NONE,
-      )
-    }, 120000)
-
-    it('a reserved name cannot be registered by anyone', async () => {
-      const reg = registration('brand0000', alice.address)
-      await controller.write.commit(
-        [await controller.read.makeCommitment([reg])],
-        { account: alice },
-      )
-      await expect(
-        controller.write.register([reg], { account: alice, value: 0n }),
-      ).toBeRevertedWithCustomError('PublicSalesClosed')
-    })
-  })
-
-  describe('3. the governance handover', () => {
     it('hands over the registrar, the registry nodes and the root', async () => {
       await baseRegistrar.write.transferOwnership([admin.address])
       await ens.write.setOwner([namehash('eth-usd.data.eth'), zeroAddress])
