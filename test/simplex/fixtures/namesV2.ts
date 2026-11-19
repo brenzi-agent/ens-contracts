@@ -184,9 +184,10 @@ export async function deployNamePolicy(
   const viem = connection.viem
   const { settlement, settlementImplementation } = await deploySettlement(
     connection,
-    controller,
-    baseRegistrar,
+    controller.address,
+    baseRegistrar.address,
   )
+  await baseRegistrar.write.addController([settlement.address])
   const namePolicyImplementation = await viem.deployContract('SimplexNamePolicy', [
     controller.address,
     baseRegistrar.address,
@@ -211,20 +212,19 @@ export async function deployNamePolicy(
 
 export async function deploySettlement(
   connection: NetworkConnection,
-  controller: any,
-  baseRegistrar: any,
+  controller: `0x${string}`,
+  registrar: `0x${string}`,
 ) {
   const viem = connection.viem
   const settlementImplementation = await viem.deployContract('SimplexSettlement', [
-    controller.address,
-    baseRegistrar.address,
+    controller,
+    registrar,
   ])
   const settlementProxy = await viem.deployContract('SimplexSettlementProxy', [
     settlementImplementation.address,
     '0x',
   ])
   const settlement = await viem.getContractAt('SimplexSettlement', settlementProxy.address)
-  await baseRegistrar.write.addController([settlement.address])
   return { settlement, settlementImplementation }
 }
 

@@ -8,6 +8,7 @@ import {
   labelhash,
   pad,
   parseEventLogs,
+  toFunctionSelector,
   toHex,
   zeroAddress,
   zeroHash,
@@ -22,6 +23,7 @@ import {
   COMMUNITY_TERMS,
   COMMUNITY_TERMS_LINK,
   deployNamesV2,
+  deploySettlement,
   FAR_FUTURE,
   GENERAL_TERMS_LINK,
   MIN_REGISTRATION,
@@ -638,9 +640,10 @@ describe('reversible payments', () => {
       await acceptRenewal(f, 'renewedover')
       await payRenewal(f, 'renewedover')
       expect(await expires(f, 'renewedover')).toBe(over.E + YEAR)
-      await expect(reinstate(f, ['renewedover'])).toBeRevertedWithCustomError(
-        'NotReversible',
-      )
+      await expect(reinstate(f, ['renewedover']))
+        .toEmitEvent('NamePaymentReinstatementSkipped')
+        .withArgs({ label: 'renewedover' })
+      expect(await expires(f, 'renewedover')).toBe(over.E + YEAR)
     })
   })
 
@@ -674,6 +677,10 @@ describe('reversible payments', () => {
       const r = await renew(f, 'renewtwice')
       await acceptRenewal(f, 'renewtwice')
       await expect(payRenewal(f, 'renewtwice')).toBeRevertedWithCustomErrorFrom(
+        f.namePolicy,
+        'PaymentNotSettled',
+      )
+      await expect(creditRenewal(f, 'renewtwice')).toBeRevertedWithCustomErrorFrom(
         f.namePolicy,
         'PaymentNotSettled',
       )
@@ -843,9 +850,10 @@ describe('reversible payments', () => {
     it('adds the deferred term at once and ends the entry', async () => {
       const f = await load()
       const r = await register(f, 'reinstate')
-      await expect(reinstate(f, ['reinstate'])).toBeRevertedWithCustomError(
-        'PaymentNotReversed',
-      )
+      await expect(reinstate(f, ['reinstate']))
+        .toEmitEvent('NamePaymentReinstatementSkipped')
+        .withArgs({ label: 'reinstate' })
+      expect(await expires(f, 'reinstate')).toBe(r.E)
       await reverse(f, ['reinstate'])
       await expect(reinstate(f, ['reinstate']))
         .toEmitEvent('NamePaymentSettled')
@@ -855,9 +863,10 @@ describe('reversible payments', () => {
       await expect(reverse(f, ['reinstate']))
         .toEmitEvent('NamePaymentReversalSkipped')
         .withArgs({ label: 'reinstate' })
-      await expect(reinstate(f, ['reinstate'])).toBeRevertedWithCustomError(
-        'NotReversible',
-      )
+      await expect(reinstate(f, ['reinstate']))
+        .toEmitEvent('NamePaymentReinstatementSkipped')
+        .withArgs({ label: 'reinstate' })
+      expect(await expires(f, 'reinstate')).toBe(r.paid)
       await expect(settle(f, 'reinstate')).toBeRevertedWithCustomError(
         'NotReversible',
       )
@@ -874,9 +883,44 @@ describe('reversible payments', () => {
       await reinstate(f, ['reinstatelast'], owner, EXACT)
       expect(await expires(f, 'reinstatelast')).toBe(last.paid)
       await exactly(late.E + GRACE + 1n)
-      await expect(
-        reinstate(f, ['reinstatelate'], owner, EXACT),
-      ).toBeRevertedWithCustomError('NotReversible')
+      await expect(reinstate(f, ['reinstatelate'], owner, EXACT))
+        .toEmitEvent('NamePaymentReinstatementSkipped')
+        .withArgs({ label: 'reinstatelate' })
+      expect(await expires(f, 'reinstatelate')).toBe(late.E)
+    })
+
+    it('reinstates the eligible names of a batch and skips the others with NamePaymentReinstatementSkipped', async () => {
+      const f = await load()
+      await register(f, 'firstwon')
+      const second = await register(f, 'secondwon')
+      await register(f, 'notreversed')
+      await register(f, 'renewedfirst', { days: 0n })
+      await renew(f, 'renewedfirst')
+      await reverse(f, ['secondwon', 'renewedfirst'])
+      await mineAt(second.until)
+      await settle(f, 'firstwon')
+      await acceptRenewal(f, 'renewedfirst')
+      await payRenewal(f, 'renewedfirst')
+      const hash = await reinstate(f, [
+        'firstwon',
+        'secondwon',
+        'notreversed',
+        'renewedfirst',
+        'secondwon',
+        'neverregistered',
+      ])
+      expect(await logsOf(f.settlement, hash, 'NamePaymentSettled')).toEqual([
+        { labelhash: labelhash('secondwon'), expires: second.paid },
+      ])
+      expect(
+        await logsOf(f.settlement, hash, 'NamePaymentReinstatementSkipped'),
+      ).toEqual([
+        { label: 'firstwon' },
+        { label: 'notreversed' },
+        { label: 'renewedfirst' },
+        { label: 'secondwon' },
+        { label: 'neverregistered' },
+      ])
     })
 
     it('is made by the admin only', async () => {
@@ -1052,6 +1096,9 @@ describe('reversible payments', () => {
         account: carol,
       })
       expect(await payment(f, 'othercontroller')).toEqual(NONE)
+      await expect(reverse(f, ['othercontroller']))
+        .toEmitEvent('NamePaymentReversalSkipped')
+        .withArgs({ label: 'othercontroller' })
       await mineAt(r.until)
       await expect(settle(f, 'othercontroller')).toBeRevertedWithCustomError(
         'NotReversible',
@@ -1120,6 +1167,44 @@ describe('reversible payments', () => {
       await expect(
         f.settlementImplementation.read.reversiblePayment([id('anyname')]),
       ).toBeRevertedWithCustomError('NotProxy')
+      await expect(
+        f.settlementImplementation.write.reversePayments([['anyname']], {
+          account: guardian,
+        }),
+      ).toBeRevertedWithCustomError('NotProxy')
+      await expect(
+        f.settlementImplementation.write.reinstatePayments([['anyname']], {
+          account: owner,
+        }),
+      ).toBeRevertedWithCustomError('NotProxy')
+    })
+
+    it('builds a name policy only on a settlement proxy of its own controller and registrar', async () => {
+      const f = await load()
+      const policyOn = (settlement: `0x${string}`) =>
+        connection.viem.deployContract('SimplexNamePolicy', [
+          f.controller.address,
+          f.baseRegistrar.address,
+          settlement,
+        ])
+      for (const [controller, registrar, error] of [
+        [f.implementation.address, f.baseRegistrar.address, 'ImplementationMismatch()'],
+        [f.controller.address, alice.address, 'ImplementationMismatch()'],
+      ] as const)
+        await expect(
+          policyOn((await deploySettlement(connection, controller, registrar)).settlement.address),
+        ).rejects.toThrow(toFunctionSelector(error).slice(2))
+      await expect(policyOn(f.settlementImplementation.address)).rejects.toThrow(
+        toFunctionSelector('NotProxy()').slice(2),
+      )
+      const other = await deploySettlement(
+        connection,
+        f.controller.address,
+        f.baseRegistrar.address,
+      )
+      expect(await (await policyOn(other.settlement.address)).read.settlement()).toBe(
+        getAddress(other.settlement.address),
+      )
     })
 
     it('refuses to upgrade the name policy to the #49 implementation', async () => {
@@ -1216,17 +1301,10 @@ describe('reversible payments', () => {
     }
 
     async function deployCurrent(p: Previous) {
-      const settlementImplementation = await connection.viem.deployContract(
-        'SimplexSettlement',
-        [p.controller.address, p.baseRegistrar.address],
-      )
-      const settlementProxy = await connection.viem.deployContract(
-        'SimplexSettlementProxy',
-        [settlementImplementation.address, '0x'],
-      )
-      const settlement = await connection.viem.getContractAt(
-        'SimplexSettlement',
-        settlementProxy.address,
+      const { settlement } = await deploySettlement(
+        connection,
+        p.controller.address,
+        p.baseRegistrar.address,
       )
       const controllerImplementation = await connection.viem.deployContract(
         'SimplexController',

@@ -17,6 +17,7 @@ import {
   COMMUNITY_TERMS,
   COMMUNITY_TERMS_LINK,
   deployNamesV2,
+  deploySettlement,
   FAR_FUTURE,
   GENERAL_TERMS,
   GENERAL_TERMS_LINK,
@@ -384,7 +385,12 @@ describe('community names', () => {
     })
 
     it('both setters revert for a contract bound to another controller or registrar', async () => {
-      const { controller, baseRegistrar, implementation, settlement } = await load()
+      const { controller, baseRegistrar, implementation } = await load()
+      const { settlement } = await deploySettlement(
+        connection,
+        implementation.address,
+        mallory.address,
+      )
       const boundElsewhere = await connection.viem.deployContract(
         'SimplexNamePolicy',
         [implementation.address, mallory.address, settlement.address],

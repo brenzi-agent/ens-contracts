@@ -33,6 +33,7 @@ contract SimplexSettlement is ISettlement, UUPSUpgradeable {
     );
     event NamePaymentReversed(bytes32 indexed labelhash);
     event NamePaymentReversalSkipped(string label);
+    event NamePaymentReinstatementSkipped(string label);
     event NamePaymentSettled(bytes32 indexed labelhash, uint256 expires);
 
     error ReversibleDaysTooMany(uint256 reversibleDays);
@@ -46,7 +47,6 @@ contract SimplexSettlement is ISettlement, UUPSUpgradeable {
     error NotReversible(string label);
     error ReversiblePeriodNotEnded(string label);
     error PaymentReversed(string label);
-    error PaymentNotReversed(string label);
 
     constructor(
         SimplexController _controller,
@@ -89,7 +89,8 @@ contract SimplexSettlement is ISettlement, UUPSUpgradeable {
 
     function settle(string calldata label) external {
         uint256 id = uint256(keccak256(bytes(label)));
-        Entry memory entry = _entryInEffect(id, label);
+        Entry memory entry = _entries[id];
+        if (!_inEffect(id, entry)) revert NotReversible(label);
         if (entry.reversed) revert PaymentReversed(label);
         if (block.timestamp < entry.reversibleUntil)
             revert ReversiblePeriodNotEnded(label);
@@ -97,6 +98,7 @@ contract SimplexSettlement is ISettlement, UUPSUpgradeable {
     }
 
     function reversePayments(string[] calldata labels) external {
+        if (address(this) == _self) revert NotProxy();
         if (
             msg.sender != controller.beneficiary() &&
             msg.sender != controller.owner()
@@ -118,11 +120,15 @@ contract SimplexSettlement is ISettlement, UUPSUpgradeable {
     }
 
     function reinstatePayments(string[] calldata labels) external {
+        if (address(this) == _self) revert NotProxy();
         if (msg.sender != controller.owner()) revert NotOwner();
         for (uint256 i = 0; i < labels.length; ++i) {
             uint256 id = uint256(keccak256(bytes(labels[i])));
-            Entry memory entry = _entryInEffect(id, labels[i]);
-            if (!entry.reversed) revert PaymentNotReversed(labels[i]);
+            Entry memory entry = _entries[id];
+            if (!_inEffect(id, entry) || !entry.reversed) {
+                emit NamePaymentReinstatementSkipped(labels[i]);
+                continue;
+            }
             _settle(id, entry.remaining);
         }
     }
@@ -155,20 +161,11 @@ contract SimplexSettlement is ISettlement, UUPSUpgradeable {
         emit NamePaymentSettled(bytes32(id), registrar.renew(id, remaining));
     }
 
-    function _entryInEffect(
-        uint256 id,
-        string calldata label
-    ) private view returns (Entry memory entry) {
-        entry = _entries[id];
-        if (!_inEffect(id, entry)) revert NotReversible(label);
-    }
-
     function _inEffect(
         uint256 id,
         Entry memory entry
     ) private view returns (bool) {
         return
-            entry.reversibleUntil != 0 &&
             block.timestamp <= entry.firstExpiry + _GRACE_PERIOD &&
             registrar.nameExpires(id) == entry.firstExpiry;
     }

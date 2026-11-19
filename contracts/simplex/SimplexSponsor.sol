@@ -82,7 +82,13 @@ contract SimplexSponsor {
         bytes calldata sig
     ) external {
         if (registration.owner != msg.sender)
-            _consumeIntent(registration, reversibleDays, nonce, deadline, sig);
+            _consumeIntent(
+                registration.owner,
+                _registerNameHash(registration, reversibleDays, nonce, deadline),
+                nonce,
+                deadline,
+                sig
+            );
         IPriceOracle.Price memory usd = controller.rentPriceUSD(
             registration.label,
             registration.duration
@@ -104,7 +110,7 @@ contract SimplexSponsor {
         bytes calldata sig
     ) external {
         if (reversibleDays != 0 && holder != msg.sender)
-            _verify(
+            _consumeIntent(
                 holder,
                 keccak256(
                     abi.encode(
@@ -156,40 +162,8 @@ contract SimplexSponsor {
         emit RegistrarAllowanceSpent(msg.sender, amountUSD, remaining);
     }
 
-    /// @dev Verify the owner's signature, then spend the nonce.
+    /// @dev Verify the signer's signature, then spend the nonce.
     function _consumeIntent(
-        IETHRegistrarController.Registration calldata registration,
-        uint256 reversibleDays,
-        uint256 nonce,
-        uint256 deadline,
-        bytes calldata sig
-    ) private {
-        // EIP-712 encodes `bytes[]` as the hash of its elements' hashes.
-        bytes32[] memory dataHashes = new bytes32[](registration.data.length);
-        for (uint256 i = 0; i < dataHashes.length; ++i)
-            dataHashes[i] = keccak256(registration.data[i]);
-        _verify(
-            registration.owner,
-            keccak256(
-                abi.encode(
-                    REGISTER_TYPEHASH,
-                    keccak256(bytes(registration.label)),
-                    registration.owner,
-                    registration.duration,
-                    registration.resolver,
-                    keccak256(abi.encodePacked(dataHashes)),
-                    reversibleDays,
-                    nonce,
-                    deadline
-                )
-            ),
-            nonce,
-            deadline,
-            sig
-        );
-    }
-
-    function _verify(
         address signer,
         bytes32 structHash,
         uint256 nonce,
@@ -206,5 +180,31 @@ contract SimplexSponsor {
         unchecked {
             nonces[signer] = nonce + 1;
         }
+    }
+
+    function _registerNameHash(
+        IETHRegistrarController.Registration calldata registration,
+        uint256 reversibleDays,
+        uint256 nonce,
+        uint256 deadline
+    ) private pure returns (bytes32) {
+        // EIP-712 encodes `bytes[]` as the hash of its elements' hashes.
+        bytes32[] memory dataHashes = new bytes32[](registration.data.length);
+        for (uint256 i = 0; i < dataHashes.length; ++i)
+            dataHashes[i] = keccak256(registration.data[i]);
+        return
+            keccak256(
+                abi.encode(
+                    REGISTER_TYPEHASH,
+                    keccak256(bytes(registration.label)),
+                    registration.owner,
+                    registration.duration,
+                    registration.resolver,
+                    keccak256(abi.encodePacked(dataHashes)),
+                    reversibleDays,
+                    nonce,
+                    deadline
+                )
+            );
     }
 }
