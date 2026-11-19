@@ -203,8 +203,9 @@ export async function storageLayout(
  * resolver's wrapper slot, the controller proxy as both trusted controller and
  * credit granter, and no reverse registrar.
  *
- * `owner` owns the controller. `beneficiary` is the guardian key. `registrar`
- * stands in for the names service hot wallet and starts with no credits.
+ * `owner` owns the controller and the six `ProxyAdmin`s. `beneficiary` is the
+ * guardian key. `registrar` stands in for the names service hot wallet and
+ * starts with no credits.
  */
 export async function deployNamesV2(
   connection: NetworkConnection,
