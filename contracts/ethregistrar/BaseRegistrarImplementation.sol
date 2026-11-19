@@ -20,7 +20,7 @@ interface ISubnameHook {
 /// @dev INVARIANT (ERC721Enumerable): enumeration (`totalSupply`,
 ///      `tokenByIndex`, `balanceOf`, `tokenOfOwnerByIndex`) is maintained on
 ///      transfer/mint/burn, NOT on expiry — a name is only burned when it is
-///      re-registered after its grace period. So enumeration includes
+///      re-registered after its grace period or its unregistration. So enumeration includes
 ///      expired-but-unburned names and can disagree with the grace-period
 ///      `ownerOf` (which reverts once expired). Readers MUST filter by
 ///      `nameExpires(id) > block.timestamp` to get the live set.
@@ -64,7 +64,7 @@ contract BaseRegistrarImplementation is
     error NamePolicyMismatch();
     error DisputePeriodOver(uint256 id);
     error DisputePeriodNotOver(uint256 id);
-    error DisputeUntilMismatch(uint256 id);
+    error DisputeUntilMismatch(uint256 named, uint256 current);
 
     /// v2.1.3 version of _isApprovedOrOwner which calls ownerOf(tokenId) and takes grace period into consideration instead of ERC721.ownerOf(tokenId);
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v2.1.3/contracts/token/ERC721/ERC721.sol#L187
@@ -229,7 +229,7 @@ contract BaseRegistrarImplementation is
     }
 
     function unregister(uint256 id, uint256 until) external live onlyController {
-        if (disputeUntil[id] != until) revert DisputeUntilMismatch(id);
+        if (disputeUntil[id] != until) revert DisputeUntilMismatch(until, disputeUntil[id]);
         if (block.timestamp >= disputeUntil[id]) revert DisputePeriodOver(id);
         delete disputeUntil[id];
         expiries[id] = 0;
