@@ -398,26 +398,6 @@ describe('launch lifecycle', () => {
       ).toBeRevertedWithCustomError('NotBeneficiary')
     })
 
-    it('hands the controller and the oracle over in two steps', async () => {
-      await controller.write.transferOwnership([admin.address])
-      await priceOracle.write.transferOwnership([admin.address])
-      // still the deploy key until acceptance
-      expect((await controller.read.owner()).toLowerCase()).toBe(
-        deployKey.address.toLowerCase(),
-      )
-      expect((await priceOracle.read.owner()).toLowerCase()).toBe(
-        deployKey.address.toLowerCase(),
-      )
-      await controller.write.acceptOwnership({ account: admin })
-      await priceOracle.write.acceptOwnership({ account: admin })
-      expect((await controller.read.owner()).toLowerCase()).toBe(
-        admin.address.toLowerCase(),
-      )
-      expect((await priceOracle.read.owner()).toLowerCase()).toBe(
-        admin.address.toLowerCase(),
-      )
-    })
-
     it('hands over the registrar, the registry nodes and the root', async () => {
       await baseRegistrar.write.transferOwnership([admin.address])
       await ens.write.setOwner([namehash('eth-usd.data.eth'), zeroAddress])
@@ -440,6 +420,53 @@ describe('launch lifecycle', () => {
         admin.address.toLowerCase(),
       )
       expect((await root.read.owner()).toLowerCase()).toBe(
+        admin.address.toLowerCase(),
+      )
+    })
+
+    it('proposes the controller and the oracle to the admin', async () => {
+      await controller.write.transferOwnership([admin.address])
+      await priceOracle.write.transferOwnership([admin.address])
+      // still the deploy key until acceptance
+      expect((await controller.read.owner()).toLowerCase()).toBe(
+        deployKey.address.toLowerCase(),
+      )
+      expect((await priceOracle.read.owner()).toLowerCase()).toBe(
+        deployKey.address.toLowerCase(),
+      )
+      expect((await controller.read.pendingOwner()).toLowerCase()).toBe(
+        admin.address.toLowerCase(),
+      )
+      expect((await priceOracle.read.pendingOwner()).toLowerCase()).toBe(
+        admin.address.toLowerCase(),
+      )
+    })
+  })
+
+  describe('4. the guardian funds the registrar, the admin accepts', () => {
+    it('grants a $100,000 allowance, and only the guardian can', async () => {
+      await expect(
+        sponsor.write.setRegistrarAllowance([registrar.address, ALLOWANCE], {
+          account: admin,
+        }),
+      ).toBeRevertedWithCustomError('NotBeneficiary')
+
+      await sponsor.write.setRegistrarAllowance(
+        [registrar.address, ALLOWANCE],
+        { account: guardian },
+      )
+      expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
+        ALLOWANCE,
+      )
+    })
+
+    it('the admin accepts the controller and the oracle', async () => {
+      await controller.write.acceptOwnership({ account: admin })
+      await priceOracle.write.acceptOwnership({ account: admin })
+      expect((await controller.read.owner()).toLowerCase()).toBe(
+        admin.address.toLowerCase(),
+      )
+      expect((await priceOracle.read.owner()).toLowerCase()).toBe(
         admin.address.toLowerCase(),
       )
     })
@@ -490,24 +517,6 @@ describe('launch lifecycle', () => {
           { account: deployKey },
         ),
       ).toBeRevertedWithCustomError('InsufficientAllowance')
-    })
-  })
-
-  describe('4. the guardian funds the registrar', () => {
-    it('grants a $100,000 allowance, and only the guardian can', async () => {
-      await expect(
-        sponsor.write.setRegistrarAllowance([registrar.address, ALLOWANCE], {
-          account: admin,
-        }),
-      ).toBeRevertedWithCustomError('NotBeneficiary')
-
-      await sponsor.write.setRegistrarAllowance(
-        [registrar.address, ALLOWANCE],
-        { account: guardian },
-      )
-      expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
-        ALLOWANCE,
-      )
     })
 
     it('the second run reads the handover back', async () => {

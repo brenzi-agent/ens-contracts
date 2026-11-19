@@ -3,6 +3,9 @@
     "0:0 _initialized uint8",
     "0:1 _initializing bool",
     "1:0 records mapping(bytes32 => struct ENSRegistry.Record)",
+    "  0:0 owner address",
+    "  1:0 resolver address",
+    "  1:20 ttl uint64",
     "2:0 operators mapping(address => mapping(address => bool))",
     "3:0 nonces mapping(address => uint256)",
     "4:0 isTld mapping(bytes32 => bool)"
@@ -45,6 +48,8 @@
     "8:0 versionable_interfaces mapping(uint64 => mapping(bytes32 => mapping(bytes4 => address)))",
     "9:0 versionable_names mapping(uint64 => mapping(bytes32 => string))",
     "10:0 versionable_pubkeys mapping(uint64 => mapping(bytes32 => struct PubkeyResolver.PublicKey))",
+    "  0:0 x bytes32",
+    "  1:0 y bytes32",
     "11:0 versionable_texts mapping(uint64 => mapping(bytes32 => mapping(string => string)))",
     "12:0 _operatorApprovals mapping(address => mapping(address => bool))",
     "13:0 _tokenApprovals mapping(address => mapping(bytes32 => mapping(address => bool)))",
@@ -95,6 +100,8 @@
   ],
   "SimplexNamePolicy": [
     "0:0 _names mapping(bytes32 => struct SimplexNamePolicy.NameEntry)",
+    "  0:0 community bool",
+    "  0:1 reserved enum SimplexNamePolicy.Reason",
     "1:0 communityTermsHash bytes32",
     "2:0 acceptedTerms mapping(bytes32 => mapping(address => bytes32))",
     "3:0 acceptedClaimTerms mapping(uint256 => mapping(address => mapping(address => mapping(uint256 => bytes32))))",
