@@ -645,13 +645,13 @@ contract SimplexController is
         emit NameRenewed(label, labelhash, cost, expires, referrer);
     }
 
-    function unregister(string calldata label) external onlyOwnerOrBeneficiary {
+    function unregister(string calldata label, uint256 until) external onlyOwnerOrBeneficiary {
         bytes32 labelhash = keccak256(bytes(label));
         bytes32 node = keccak256(abi.encodePacked(tldNode, labelhash));
         _retireStaleRecords(node);
         address resolver = defaultResolver;
         if (resolver != address(0)) IClearableResolver(resolver).clearRecords(node);
-        base.unregister(uint256(labelhash));
+        base.unregister(uint256(labelhash), until);
     }
 
     /// @notice Pays the beneficiary, never `owner()`, so revenue is independent of
