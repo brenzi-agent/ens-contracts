@@ -193,10 +193,12 @@ it is moved and `__gap` is untouched.
       `receive`, and prints the calldata of `ProxyAdmin.upgradeAndCall`. Update
       `test/simplex/__snapshots__/storageLayouts.json` in the same commit and
       review its diff.
-- [ ] **Run an upgrade test of the contract being upgraded:** deploy its
-      deployed version behind a `TransparentUpgradeableProxy`, write every
-      stored variable, upgrade through the `ProxyAdmin` with the intended
-      `data`, and assert every value and the guard of the `data` function.
+- [ ] **Run an upgrade test of the contract being upgraded.** Copy the source
+      of its deployed version, from the tag of that deployment, to
+      `contracts/test/upgrades/` under another contract name; deploy the copy
+      behind a `TransparentUpgradeableProxy`, write every stored variable,
+      upgrade through the `ProxyAdmin` with the intended `data`, and assert
+      every value and the guard of the `data` function.
 - [ ] **Run `test/simplex/TestControllerStorageLayout.test.ts`.** It reads raw
       slots from a deployed proxy and asserts the packing and the reserved slots
       directly.
