@@ -6,13 +6,15 @@ const C = 'contracts/simplex/SimplexController.sol'
 const N = 'contracts/simplex/SimplexSponsor.sol'
 
 export const mutants = [
-  [R, 'disputeUntil[id] = block.timestamp + disputePeriod;', ''],
-  [R, 'disputeUntil[id] = block.timestamp + disputePeriod;', 'disputeUntil[id] = block.timestamp;'],
+  [R, 'disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp + disputePeriod;', ''],
+  [R, 'disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp + disputePeriod;', 'disputeUntil[id] = block.timestamp + disputePeriod;'],
+  [R, 'disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp + disputePeriod;', 'disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp;'],
   [R, 'if (block.timestamp >= disputeUntil[id]) revert DisputePeriodOver(id);', ''],
   [R, 'if (block.timestamp >= disputeUntil[id])', 'if (block.timestamp > disputeUntil[id])'],
   [R, 'delete disputeUntil[id];', ''],
   [R, 'expiries[id] = 0;', ''],
-  [R, 'ens.setSubnodeOwner(baseNode, bytes32(id), address(0));', ''],
+  [R, 'ens.setSubnodeRecord(baseNode, bytes32(id), address(0), address(0), 0);', ''],
+  [R, 'ens.setSubnodeRecord(baseNode, bytes32(id), address(0), address(0), 0);', 'ens.setSubnodeOwner(baseNode, bytes32(id), address(0));'],
   [R, 'ISubnameHook(subnameHook).onExpiryChanged(\n                keccak256(abi.encodePacked(baseNode, bytes32(id))),\n                0\n            );', ''],
   [R, 'function unregister(uint256 id) external live onlyController {', 'function unregister(uint256 id) external live {'],
   [C, 'if (disputeDays < MIN_DISPUTE_DAYS || disputeDays > MAX_DISPUTE_DAYS)\n            revert DisputeDaysOutOfRange(disputeDays);', ''],
@@ -21,7 +23,9 @@ export const mutants = [
   [C, '_registerCore(registration, labelhash, price, 0);', '_registerCore(registration, labelhash, price, MIN_DISPUTE_DAYS * 1 days);'],
   [C, 'disputeDays * 1 days);', 'disputeDays);'],
   [C, 'function unregister(string calldata label) external onlyOwnerOrBeneficiary {', 'function unregister(string calldata label) external {'],
-  [C, '_retireStaleRecords(keccak256(abi.encodePacked(tldNode, labelhash)));\n    }', '}'],
+  [C, '_retireStaleRecords(keccak256(abi.encodePacked(tldNode, labelhash)));\n        base.unregister', 'base.unregister'],
+  [C, 'if (block.timestamp < base.disputeUntil(uint256(labelhash)))\n            revert DisputePeriodNotOver(label);', ''],
+  [C, 'if (block.timestamp < base.disputeUntil(uint256(labelhash)))', 'if (block.timestamp <= base.disputeUntil(uint256(labelhash)))'],
   [P, 'registrar.registerWithLabel(label, address(this), duration, 0);', 'registrar.registerWithLabel(label, address(this), duration, 1 days);'],
   [N, 'keccak256(abi.encodePacked(dataHashes)),\n                        disputeDays,', 'keccak256(abi.encodePacked(dataHashes)),\n                        uint256(0),'],
 ]
