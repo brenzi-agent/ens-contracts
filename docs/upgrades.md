@@ -144,7 +144,13 @@ reordering them swaps the two lists; keep them unchanged (invariant 2).
    reorder, remove, rename or retype one. The members of a stored struct stay
    unchanged, and an enum gains values only at its end.
 3. **Never reorder the base contracts** in the `is (...)` list, and add no base
-   contract with storage — either moves storage.
+   contract with storage — either moves storage. `Initializable` stays at
+   `@openzeppelin/contracts-upgradeable` 4.9.3 in `ENSRegistry`,
+   `BaseRegistrarImplementation` and `SimplexController`: its `_initialized`
+   (in the registrar, slot 10, offset 20) is the only barrier against a second
+   `initialize`, and the 5.x `Initializable` reads an ERC-7201 slot that holds
+   zero in an existing proxy, so anyone could then call, for example,
+   `initialize(ens, baseNode, attacker)` on the registrar.
 4. `constant` / `immutable` values are compiled into the implementation, not
    stored in the proxy, so an upgrade replaces them. A new implementation keeps
    the value of each immutable unless changing it is the purpose of the
