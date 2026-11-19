@@ -237,13 +237,16 @@ it is moved and `__gap` is untouched.
       storage, the ERC-1967 slots included.
 - [ ] **Review the new code for state written at construction.** A constructor
       or the initializer of a state variable writes the implementation's
-      storage, never the proxy's. A new implementation adds no such write;
-      state it needs is written by a function passed as the `data` of
-      `ProxyAdmin.upgradeAndCall`. The registry's root owner and the
-      registrar's `ens`, `baseNode` and owner, written by their constructors,
-      reach a proxy only because `initialize` writes them again at deployment.
-      `constant` and `immutable` values are exempt (invariant 4). The function
-      passed as `data` runs with the `ProxyAdmin` as `msg.sender`: an
+      storage, never the proxy's. State that the proxy needs is written by a
+      function passed as the `data` of `ProxyAdmin.upgradeAndCall`, never by
+      the constructor. The registry's root owner and the registrar's `ens`,
+      `baseNode` and owner, written by their constructors, reach a proxy only
+      because `initialize` writes them again at deployment. The constructors of
+      `ENSRegistry`, `BaseRegistrarImplementation` and `SimplexController`
+      keep `_disableInitializers()`, and `scripts/prepare-upgrade.mjs` refuses
+      a candidate whose `_initialized` is not 255. `constant` and `immutable`
+      values are exempt (invariant 4). The function passed as `data` runs with
+      the `ProxyAdmin` as `msg.sender`: an
       `onlyOwner` function reverts there, a function that records its caller
       records the `ProxyAdmin`, and with `SimplexResolver.multicall` as `data`,
       `upgradeAndCall` reverts `FailedCall()`: each `delegatecall` of
