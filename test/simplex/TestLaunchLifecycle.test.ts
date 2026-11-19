@@ -17,6 +17,7 @@ import {
   GENERAL_TERMS,
   GENERAL_TERMS_LINK,
   MIN_REGISTRATION,
+  passDisputePeriod,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
   registerWithCredit,
@@ -543,6 +544,7 @@ describe('launch lifecycle', () => {
       const allowanceBefore = await sponsor.read.registrarAllowance([
         registrar.address,
       ])
+      await passDisputePeriod(connection)
       await namePolicy.write.acceptGeneralTermsForRenewalWithSig(
         await signGeneralTermsForRenewal(
           connection,

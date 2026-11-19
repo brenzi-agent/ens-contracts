@@ -7,6 +7,7 @@ import {
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
+  passDisputePeriod,
   registerWithCredit,
   registration,
   sponsorOf,
@@ -64,6 +65,7 @@ describe('the sponsored path does not depend on the price feed', () => {
 
     const tokenId = BigInt(labelhash('deadfeed'))
     const before = await baseRegistrar.read.nameExpires([tokenId])
+    await passDisputePeriod(connection)
     await acceptGeneralTermsForRenewal(connection, controller, 'deadfeed', YEAR, {
       account: alice,
     })
@@ -122,6 +124,7 @@ describe('the sponsored path does not depend on the price feed', () => {
   it('credited renewal emits a zero cost too', async () => {
     const { controller, sponsor } = await load()
     await sponsoredRegister(controller, 'renewevent')
+    await passDisputePeriod(connection)
     await acceptGeneralTermsForRenewal(connection, controller, 'renewevent', YEAR, {
       account: alice,
     })
