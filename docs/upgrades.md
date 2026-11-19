@@ -136,8 +136,8 @@ reordering them swaps the two lists; treat the struct as append-only too.
    state variable. Renaming with the identical type is fine (layout is by
    position+type, not name); changing the type or order corrupts every slot
    after it.
-3. **Never reorder the base contracts** in the `is (...)` list — that also moves
-   storage.
+3. **Never reorder the base contracts** in the `is (...)` list, and add no base
+   contract with storage — either moves storage.
 4. `constant` / `immutable` values are compiled into the implementation, not
    stored in the proxy, so an upgrade replaces them. A new implementation keeps
    the value of each immutable unless changing it is the purpose of the
@@ -199,6 +199,15 @@ Same slot count, same slot size. `__gap` is untouched.
       records the `ProxyAdmin`, and `SimplexResolver.multicall` reverts
       `ProxyDeniedAdminAccess`, since each of its `delegatecall`s to
       `address(this)` runs the proxy's code with the same `msg.sender`.
+- [ ] **Guard the function passed as `data`.** In `ENSRegistry`,
+      `BaseRegistrarImplementation` and `SimplexController` it is a
+      `reinitializer(n)`. `SimplexNamePolicy`, `SubnameRegistrar` and
+      `SimplexResolver` lack `Initializable`, which invariant 3 keeps out:
+      there it reverts unless `msg.sender` is the proxy's `ProxyAdmin`. The new
+      implementation receives that address, the CREATE address of the proxy at
+      nonce 1, as a constructor argument and keeps it in an immutable;
+      `scripts/prepare-upgrade.mjs` refuses code that reads the ERC-1967 admin
+      slot.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
@@ -221,7 +230,3 @@ The policy compiles in the controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` a
 `MAX_SPONSORED_REGISTRATION`, and reads the controller's `ens` and `tldNode` once,
 in its constructor. A controller upgrade that changed any of them needs a policy
 upgrade as well.
-
-It has no initializer. An implementation that adds one must run it through the
-`data` of `ProxyAdmin.upgradeAndCall`, in the upgrade transaction itself, or
-anyone can call it first.
