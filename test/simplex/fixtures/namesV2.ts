@@ -1,5 +1,7 @@
 import type { ConstructorArgs } from '@nomicfoundation/hardhat-viem/types'
+import type { ArtifactManager } from 'hardhat/types/artifacts'
 import type { NetworkConnection } from 'hardhat/types/network'
+import { readFile } from 'node:fs/promises'
 import {
   type Abi,
   encodeFunctionData,
@@ -123,6 +125,25 @@ export async function deployBehindProxy<ContractName extends string>(
     implementation,
     proxyAdmin: await proxyAdminOf(connection, proxy.address),
   }
+}
+
+export async function storageLayout(
+  artifacts: ArtifactManager,
+  contractName: string,
+): Promise<{ label: string; slot: bigint; offset: number; type: string }[]> {
+  const artifact = await artifacts.readArtifact(contractName)
+  const outputPath = await artifacts.getBuildInfoOutputPath(
+    artifact.buildInfoId!,
+  )
+  const { output } = JSON.parse(await readFile(outputPath!, 'utf8'))
+  const { storage, types } =
+    output.contracts[artifact.inputSourceName!][contractName].storageLayout
+  return storage.map((variable: any) => ({
+    label: variable.label,
+    slot: BigInt(variable.slot),
+    offset: variable.offset,
+    type: types[variable.type].label,
+  }))
 }
 
 /**

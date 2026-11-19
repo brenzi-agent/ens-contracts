@@ -134,6 +134,11 @@ const config = {
             useLiteralContent: true,
           },
           evmVersion: 'paris',
+          outputSelection: {
+            '*': {
+              '*': ['storageLayout'],
+            },
+          },
         },
       },
       {
