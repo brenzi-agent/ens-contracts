@@ -40,6 +40,7 @@ export const mutants = [
   [P, '_settlement.reversiblePayment(0);', ''],
   [C, '&&\n            INamePolicy(newNamePolicy).settlement() != INamePolicy(namePolicy).settlement()', '&& false'],
   [C, 'expires + duration - extension > block.timestamp + horizon', 'expires > block.timestamp + horizon'],
+  [C, 'expires + duration - extension > block.timestamp + horizon', 'expires + duration > block.timestamp + horizon'],
   [C, 'if (reversibleDays != 0)\n            term =', 'if (true)\n            term ='],
   [C, 'if (reversibleDays != 0)\n            extension =', 'if (true)\n            extension ='],
   [N, 'if (reversibleDays != 0 && holder != msg.sender)\n            _consumeIntent(', 'if (false)\n            _consumeIntent('],
