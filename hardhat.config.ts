@@ -162,6 +162,8 @@ const config = {
       '@openzeppelin/contracts/utils/introspection/IERC165.sol',
       '@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol',
       '@openzeppelin/contracts/token/ERC1155/IERC1155.sol',
+      '@openzeppelin/contracts-v5/proxy/transparent/TransparentUpgradeableProxy.sol',
+      '@openzeppelin/contracts-v5/proxy/transparent/ProxyAdmin.sol',
     ],
   },
   generateTypedArtifacts: {

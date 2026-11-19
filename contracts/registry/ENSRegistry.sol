@@ -2,9 +2,10 @@ pragma solidity >=0.8.4;
 
 import "./ENS.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /// The ENS registry contract.
-contract ENSRegistry is ENS {
+contract ENSRegistry is ENS, Initializable {
     struct Record {
         address owner;
         address resolver;
@@ -55,6 +56,11 @@ contract ENSRegistry is ENS {
     /// @dev Constructs a new ENS registry.
     constructor() public {
         records[0x0].owner = msg.sender;
+        _disableInitializers();
+    }
+
+    function initialize(address rootOwner) external initializer {
+        records[0x0].owner = rootOwner;
     }
 
     /// @dev Sets the record for a node.
