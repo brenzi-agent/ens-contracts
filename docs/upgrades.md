@@ -49,7 +49,11 @@ flowchart LR
   of the six implementations, and `test/simplex/TestUpgradeableStack.test.ts`
   compares the compiled layouts with it and checks the six ABIs for the
   selectors above. An upgrade that changes a layout updates the snapshot in the
-  same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`).
+  same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`). Its
+  diff only appends: variables after every existing one, members at the end of
+  a struct, values at the end of an enum, and, where the contract has a
+  `__gap`, a `__gap` line moved by the slots the new variables take and
+  shortened by as many. Any other difference breaks the layout.
 
 ## Storage model
 
@@ -131,20 +135,25 @@ reordering them swaps the two lists; treat the struct as append-only too.
    immediately *before* `__gap`, and `__gap`'s size is decremented by the number
    of 32-byte slots it consumes (one slot for a `mapping`, `address`, `bool`,
    `uintN`, `bytes32`; more for larger structs). Net slot count is unchanged.
-   In a contract without `__gap`, it is declared after the last variable.
+   In a contract without `__gap`, it is declared after the last variable. Only
+   the most derived contract gains variables: one added to a base contract,
+   such as `PublicResolver` or one of its profiles, `ERC721`,
+   `ERC721Enumerable` or `Ownable` in a merge from upstream ENS, moves every
+   variable declared after it.
 2. **Never reorder, remove, retype, or rename-with-different-type** an existing
    state variable. Renaming with the identical type is fine (layout is by
    position+type, not name); changing the type or order corrupts every slot
    after it.
-3. **Never reorder the base contracts** in the `is (...)` list — that also moves
-   storage.
+3. **Never reorder the base contracts** in the `is (...)` list, and add no base
+   contract with storage — either moves storage.
 4. `constant` / `immutable` values are compiled into the implementation, not
    stored in the proxy, so an upgrade replaces them. A new implementation keeps
    the value of each immutable unless changing it is the purpose of the
    upgrade. The immutables of `SimplexResolver` (`ens`; `nameWrapper`, the
    subname registrar; `trustedETHController`, the controller;
    `trustedReverseRegistrar`) and of `SubnameRegistrar` (`ens`,
-   `baseRegistrar`, `_deployer`) determine who may write records.
+   `baseRegistrar`) determine who may write records; `SubnameRegistrar`'s
+   `_deployer` is the only caller of its one-time `setResolver`.
    `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract compares
    the runtime code of a candidate with its artifact, with the current
    immutables in place.
@@ -199,6 +208,15 @@ Same slot count, same slot size. `__gap` is untouched.
       records the `ProxyAdmin`, and `SimplexResolver.multicall` reverts
       `ProxyDeniedAdminAccess`, since each of its `delegatecall`s to
       `address(this)` runs the proxy's code with the same `msg.sender`.
+- [ ] **Guard the function passed as `data`.** In `ENSRegistry`,
+      `BaseRegistrarImplementation` and `SimplexController` it is a
+      `reinitializer(n)`. `SimplexNamePolicy`, `SubnameRegistrar` and
+      `SimplexResolver` lack `Initializable`, which invariant 3 keeps out:
+      there it reverts unless `msg.sender` is the proxy's `ProxyAdmin`. The new
+      implementation receives that address, the CREATE address of the proxy at
+      nonce 1, as a constructor argument and keeps it in an immutable;
+      `scripts/prepare-upgrade.mjs` refuses code that reads the ERC-1967 admin
+      slot.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
@@ -221,7 +239,3 @@ The policy compiles in the controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` a
 `MAX_SPONSORED_REGISTRATION`, and reads the controller's `ens` and `tldNode` once,
 in its constructor. A controller upgrade that changed any of them needs a policy
 upgrade as well.
-
-It has no initializer. An implementation that adds one must run it through the
-`data` of `ProxyAdmin.upgradeAndCall`, in the upgrade transaction itself, or
-anyone can call it first.
