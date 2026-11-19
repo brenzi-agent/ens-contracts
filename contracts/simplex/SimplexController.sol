@@ -300,7 +300,7 @@ contract SimplexController is
         emit PublicSalesOpenChanged(open);
     }
 
-    /// @notice One-way. Makes the implementation, the name policy's implementation and the
+    /// @notice One-way. Makes the implementation, the name policy's and the settlement's implementations and the
     ///         sponsor permanent and locks the sales switch in its current position. Everything
     ///         else the owner can do survives, including `setPriceOracle` and the name policy's
     ///         setters.

@@ -7,6 +7,7 @@ import {BaseRegistrarImplementation} from "../ethregistrar/BaseRegistrarImplemen
 import {ENS} from "../registry/ENS.sol";
 import {INamePolicy, ISettlement} from "./INamePolicy.sol";
 import {IClearableResolver, MAX_REGISTRATION, MAX_SPONSORED_REGISTRATION, MIN_REGISTRATION, SimplexController} from "./SimplexController.sol";
+import {SimplexSettlement} from "./SimplexSettlement.sol";
 
 contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     SimplexController public immutable controller;
@@ -125,6 +126,10 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         settlement = _settlement;
         _ens = _controller.ens();
         _tldNode = _controller.tldNode();
+        SimplexSettlement bound = SimplexSettlement(address(_settlement));
+        if (bound.controller() != _controller || bound.registrar() != _registrar)
+            revert ImplementationMismatch();
+        _settlement.reversiblePayment(0);
     }
 
     modifier onlyOwner() {

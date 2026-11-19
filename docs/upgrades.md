@@ -149,8 +149,11 @@ It has no initializer. An implementation that adds one must run it through
 `upgradeToAndCall`, in the upgrade transaction itself, or anyone can call it
 first.
 
-The controller's `setNamePolicy` refuses a policy whose `settlement()` differs
-from the current policy's, so every policy the controller takes names the same
+The policy's constructor reverts `ImplementationMismatch` unless the settlement's
+`controller()` and `registrar()` are the policy's own, and reverts `NotProxy` for
+the settlement's implementation, because the binding is permanent. The
+controller's `setNamePolicy` refuses a policy whose `settlement()` differs from
+the current policy's, so every policy the controller takes names the same
 settlement.
 
 ## `SimplexSettlement`

@@ -18,6 +18,7 @@ import {
   COMMUNITY_TERMS,
   COMMUNITY_TERMS_LINK,
   deployNamesV2,
+  deploySettlement,
   GENERAL_TERMS,
   GENERAL_TERMS_LINK,
   MIN_REGISTRATION,
@@ -53,12 +54,17 @@ async function fixture() {
 const load = () => connection.networkHelpers.loadFixture(fixture)
 type Fixture = Awaited<ReturnType<typeof fixture>>
 
-const implementationBoundTo = (
+const implementationBoundTo = async (
   controller: `0x${string}`,
   registrar: `0x${string}`,
-  settlement: `0x${string}`,
+  settlement?: `0x${string}`,
 ) =>
-  connection.viem.deployContract('SimplexNamePolicy', [controller, registrar, settlement])
+  connection.viem.deployContract('SimplexNamePolicy', [
+    controller,
+    registrar,
+    settlement ??
+      (await deploySettlement(connection, controller, registrar)).settlement.address,
+  ])
 
 const policyWithNoReservations = ({ namePolicyImplementation }: Fixture) =>
   connection.viem.deployContract('SimplexNamePolicyProxy', [
@@ -168,11 +174,11 @@ describe('name policy', () => {
     })
 
     it('an upgrade reverts for an implementation bound to another controller, registrar or settlement', async () => {
-      const { controller, baseRegistrar, namePolicy, implementation, settlement } = await load()
+      const { controller, baseRegistrar, namePolicy, implementation } = await load()
       for (const next of [
-        await implementationBoundTo(implementation.address, baseRegistrar.address, settlement.address),
-        await implementationBoundTo(controller.address, alice.address, settlement.address),
-        await implementationBoundTo(controller.address, baseRegistrar.address, alice.address),
+        await implementationBoundTo(implementation.address, baseRegistrar.address),
+        await implementationBoundTo(controller.address, alice.address),
+        await implementationBoundTo(controller.address, baseRegistrar.address),
       ]) {
         await expect(
           namePolicy.write.upgradeTo([next.address], { account: owner }),
@@ -387,13 +393,13 @@ describe('name policy', () => {
     })
 
     it('setNamePolicy reverts for zero and for a policy bound to another controller or settlement', async () => {
-      const { controller, baseRegistrar, namePolicy, implementation, settlement } = await load()
+      const { controller, baseRegistrar, namePolicy, implementation } = await load()
       await expect(
         controller.write.setNamePolicy([zeroAddress], { account: owner }),
       ).toBeRevertedWithCustomError('ZeroAddress')
       for (const boundElsewhere of [
-        await implementationBoundTo(implementation.address, baseRegistrar.address, settlement.address),
-        await implementationBoundTo(controller.address, baseRegistrar.address, alice.address),
+        await implementationBoundTo(implementation.address, baseRegistrar.address),
+        await implementationBoundTo(controller.address, baseRegistrar.address),
       ])
         await expect(
           controller.write.setNamePolicy([boundElsewhere.address], {
