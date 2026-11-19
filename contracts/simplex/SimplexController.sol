@@ -131,7 +131,6 @@ contract SimplexController is
     error OwnerMustBeCaller();
     error NotSponsor();
     error DisputeDaysOutOfRange(uint256 disputeDays);
-    error DisputePeriodNotOver(string name);
 
     event NameRegistered(
         string label,
@@ -636,8 +635,6 @@ contract SimplexController is
         address holder
     ) private returns (uint256 expires) {
         if (duration < MIN_RENEWAL_DURATION) revert DurationTooShort(duration);
-        if (block.timestamp < base.disputeUntil(uint256(labelhash)))
-            revert DisputePeriodNotOver(label);
         if (INamePolicy(namePolicy).isReserved(labelhash))
             revert NameReserved(label);
         INamePolicy(namePolicy).consumeRenewal(label, labelhash, duration, holder);
@@ -650,7 +647,10 @@ contract SimplexController is
 
     function unregister(string calldata label) external onlyOwnerOrBeneficiary {
         bytes32 labelhash = keccak256(bytes(label));
-        _retireStaleRecords(keccak256(abi.encodePacked(tldNode, labelhash)));
+        bytes32 node = keccak256(abi.encodePacked(tldNode, labelhash));
+        _retireStaleRecords(node);
+        address resolver = defaultResolver;
+        if (resolver != address(0)) IClearableResolver(resolver).clearRecords(node);
         base.unregister(uint256(labelhash));
     }
 
