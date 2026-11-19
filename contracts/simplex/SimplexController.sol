@@ -301,8 +301,8 @@ contract SimplexController is
         emit NftGateDisabled();
     }
 
-    /// @notice Swap the active price oracle: the only repair of an oracle
-    ///         whose code is defective.
+    /// @notice Swap the active price oracle, for instance to replace one whose
+    ///         code is defective.
     function setPriceOracle(IPriceOracleUSD newOracle) external onlyOwner {
         if (address(newOracle) == address(0)) revert ZeroAddress();
         prices = newOracle;
