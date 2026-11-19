@@ -63,6 +63,7 @@ contract BaseRegistrarImplementation is
     error LabelTooLong(uint256 length, uint256 max);
     error NamePolicyMismatch();
     error DisputePeriodOver(uint256 id);
+    error DisputePeriodNotOver(uint256 id);
 
     /// v2.1.3 version of _isApprovedOrOwner which calls ownerOf(tokenId) and takes grace period into consideration instead of ERC721.ownerOf(tokenId);
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v2.1.3/contracts/token/ERC721/ERC721.sol#L187
@@ -209,6 +210,7 @@ contract BaseRegistrarImplementation is
         uint256 id,
         uint256 duration
     ) external override live onlyController returns (uint256) {
+        if (block.timestamp < disputeUntil[id]) revert DisputePeriodNotOver(id);
         require(expiries[id] + GRACE_PERIOD >= block.timestamp); // Name must be registered here or in grace period
         require(
             expiries[id] + duration + GRACE_PERIOD > duration + GRACE_PERIOD

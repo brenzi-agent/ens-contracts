@@ -354,32 +354,78 @@ describe('dispute period', () => {
 
     it('refuses a renewal on both paths until the dispute period ends', async () => {
       const f = await load()
-      const until = await sponsored(f, 'renewlater')
-      await acceptGeneralTermsForRenewal(connection, f.controller, 'renewlater', YEAR, {
-        account: alice,
-      })
-      await expect(
-        f.sponsor.write.renewWithCredit(['renewlater', YEAR, zeroHash, alice.address], {
-          account: registrar,
-        }),
-      ).toBeRevertedWithCustomErrorFrom(f.controller, 'DisputePeriodNotOver')
-      await exactly(until - 1n)
-      await expect(
-        f.controller.write.renew(['renewlater', YEAR, zeroHash], {
+      const paths = {
+        renewpaid: () =>
+          f.controller.write.renew(['renewpaid', YEAR, zeroHash], {
+            account: alice,
+            value: YEAR_PRICE_USD,
+            ...EXACT,
+          }),
+        renewcredit: () =>
+          f.sponsor.write.renewWithCredit(['renewcredit', YEAR, zeroHash, alice.address], {
+            account: registrar,
+            ...EXACT,
+          }),
+      }
+      for (const [label, renew] of Object.entries(paths)) {
+        const until = await sponsored(f, label)
+        await acceptGeneralTermsForRenewal(connection, f.controller, label, YEAR, {
           account: alice,
-          value: YEAR_PRICE_USD,
-          ...EXACT,
-        }),
-      ).toBeRevertedWithCustomError('DisputePeriodNotOver')
-      await exactly(until)
-      await f.controller.write.renew(['renewlater', YEAR, zeroHash], {
+        })
+        await exactly(until - 1n)
+        await expect(renew()).toBeRevertedWithCustomErrorFrom(
+          f.baseRegistrar,
+          'DisputePeriodNotOver',
+        )
+        await exactly(until)
+        await renew()
+        expect(await f.baseRegistrar.read.nameExpires([id(label)])).toBe(
+          until - MIN_DISPUTE_DAYS * DAY + MIN_REGISTRATION + YEAR,
+        )
+      }
+    })
+
+    it('clears the default resolver although the holder points the name elsewhere', async () => {
+      const f = await load()
+      await sponsored(f, 'repointed', { resolver: f.resolver.address })
+      await f.resolver.write.setText([node('repointed'), KEY, 'https://smp/alice'], {
         account: alice,
-        value: YEAR_PRICE_USD,
-        ...EXACT,
       })
-      expect(await f.baseRegistrar.read.nameExpires([id('renewlater')])).toBe(
-        until - MIN_DISPUTE_DAYS * DAY + MIN_REGISTRATION + YEAR,
-      )
+      await f.ens.write.setResolver([node('repointed'), zeroAddress], {
+        account: alice,
+      })
+      await unregister(f, 'repointed')
+      await sponsored(f, 'repointed', { holder: bob, resolver: f.resolver.address })
+      expect(await f.resolver.read.text([node('repointed'), KEY])).toBe('')
+    })
+
+    it('clears a past default resolver the name points at', async () => {
+      const f = await load()
+      await sponsored(f, 'pastdefault', { resolver: f.resolver.address })
+      await f.resolver.write.setText([node('pastdefault'), KEY, 'https://smp/alice'], {
+        account: alice,
+      })
+      const next = await connection.viem.deployContract('SimplexResolver', [
+        f.ens.address,
+        f.subnameRegistrar.address,
+        f.controller.address,
+        zeroAddress,
+      ])
+      await f.controller.write.setDefaultResolver([next.address], { account: owner })
+      await unregister(f, 'pastdefault')
+      expect(await f.resolver.read.text([node('pastdefault'), KEY])).toBe('')
+    })
+
+    it('is made without a default resolver and after the freeze', async () => {
+      const f = await load()
+      await sponsored(f, 'nodefault')
+      await sponsored(f, 'afterfreeze')
+      await f.controller.write.setDefaultResolver([zeroAddress], { account: owner })
+      await unregister(f, 'nodefault')
+      await f.controller.write.freeze({ account: owner })
+      await unregister(f, 'afterfreeze')
+      for (const label of ['nodefault', 'afterfreeze'])
+        expect(await f.baseRegistrar.read.nameExpires([id(label)])).toBe(0n)
     })
 
     it('is made on the registrar by a registrar controller only', async () => {
