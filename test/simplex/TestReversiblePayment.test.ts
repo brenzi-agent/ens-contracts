@@ -102,6 +102,20 @@ async function mineAt(timestamp: bigint) {
   await testClient.mine({ blocks: 1 })
 }
 
+const revertDataOf = (error: any): string | undefined =>
+  typeof error?.data === 'object' ? error.data?.data : error?.data
+
+async function revertSelector(deployment: Promise<unknown>) {
+  const error: any = await deployment.then(
+    () => undefined,
+    (e) => e,
+  )
+  const source = error?.walk?.((e: any) =>
+    /^0x[0-9a-f]{8}/i.test(revertDataOf(e) ?? ''),
+  )
+  return revertDataOf(source)?.slice(0, 10)
+}
+
 async function logsOf(contract: any, hash: `0x${string}`, eventName: string) {
   const { logs } = await publicClient.waitForTransactionReceipt({ hash })
   return parseEventLogs({ abi: contract.abi, eventName, logs })
@@ -287,6 +301,24 @@ describe('reversible payments', () => {
       ])
       await offer(f, 'staleentry', bob, carol)
       await claim(f, 'staleentry', bob, carol)
+    })
+
+    it('reverts NameNotAvailable for a card registration of a name whose reversed registration is in effect', async () => {
+      const f = await load()
+      await register(f, 'heldreversed')
+      await reverse(f, ['heldreversed'])
+      const reg = registration('heldreversed', bob.address)
+      await commitUnderGeneralTerms(connection, f.controller, reg, {
+        account: bob,
+      })
+      await expect(
+        f.sponsor.write.registerWithCredit(
+          await signRegistration(connection, f.sponsor, reg, {
+            reversibleDays: DAYS,
+          }),
+          { account: registrar },
+        ),
+      ).toBeRevertedWithCustomErrorFrom(f.controller, 'NameNotAvailable')
     })
 
     it('registers the whole term with 0 days, and opens no entry', async () => {
@@ -1101,6 +1133,9 @@ describe('reversible payments', () => {
       await expect(
         payRenewal(f, 'soldearly', bob),
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'PaymentReversed')
+      await expect(
+        creditRenewal(f, 'soldearly', bob),
+      ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'PaymentReversed')
     })
 
     it('moves the name on a claim from reversibleUntil to E, and a reversal then skips it', async () => {
@@ -1251,15 +1286,17 @@ describe('reversible payments', () => {
           f.baseRegistrar.address,
           settlement,
         ])
-      for (const [controller, registrar, error] of [
-        [f.implementation.address, f.baseRegistrar.address, 'ImplementationMismatch()'],
-        [f.controller.address, alice.address, 'ImplementationMismatch()'],
+      for (const [controller, registrar] of [
+        [f.implementation.address, f.baseRegistrar.address],
+        [f.controller.address, alice.address],
       ] as const)
-        await expect(
-          policyOn((await deploySettlement(connection, controller, registrar)).settlement.address),
-        ).rejects.toThrow(toFunctionSelector(error).slice(2))
-      await expect(policyOn(f.settlementImplementation.address)).rejects.toThrow(
-        toFunctionSelector('NotProxy()').slice(2),
+        expect(
+          await revertSelector(
+            policyOn((await deploySettlement(connection, controller, registrar)).settlement.address),
+          ),
+        ).toBe(toFunctionSelector('ImplementationMismatch()'))
+      expect(await revertSelector(policyOn(f.settlementImplementation.address))).toBe(
+        toFunctionSelector('NotProxy()'),
       )
       const other = await deploySettlement(
         connection,
