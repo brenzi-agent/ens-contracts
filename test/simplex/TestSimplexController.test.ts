@@ -1,13 +1,12 @@
 import hre from 'hardhat'
-import {
-  encodeFunctionData,
-  labelhash,
-  namehash,
-  zeroAddress,
-  zeroHash,
-} from 'viem'
+import { labelhash, namehash, zeroAddress, zeroHash } from 'viem'
 
-import { commitUnderGeneralTerms, deployNamePolicy } from './fixtures/namesV2.js'
+import {
+  commitUnderGeneralTerms,
+  deployBehindProxy,
+  deployNamePolicy,
+  proxyAdminOf,
+} from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
 const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
@@ -34,14 +33,12 @@ async function deploySimplexControllerProxy(args: {
   }
   ownerAddress: `0x${string}`
 }) {
-  const implementation = await connection.viem.deployContract(
+  const { contract: controller, implementation } = await deployBehindProxy(
+    connection,
     'SimplexController',
     [],
-  )
-  const initData = encodeFunctionData({
-    abi: implementation.abi,
-    functionName: 'initialize',
-    args: [
+    args.ownerAddress,
+    [
       args.base,
       args.prices,
       args.minCommitmentAge,
@@ -50,16 +47,8 @@ async function deploySimplexControllerProxy(args: {
       args.config,
       args.ownerAddress,
     ],
-  })
-  const proxy = await connection.viem.deployContract('SimplexControllerProxy', [
-    implementation.address,
-    initData,
-  ])
-  const controller = await connection.viem.getContractAt(
-    'SimplexController',
-    proxy.address,
   )
-  return { controller, implementation, proxyAddress: proxy.address }
+  return { controller, implementation, proxyAddress: controller.address }
 }
 
 const REGISTRATION_TIME = 730n * DAY
@@ -531,7 +520,7 @@ describe('SimplexController', () => {
     })
   })
 
-  describe('UUPS upgradeability', () => {
+  describe('Upgradeability through the ProxyAdmin', () => {
     it('re-initializing the proxy reverts', async () => {
       const { controller, baseRegistrar, priceOracle, ensRegistry, mockNft } =
         await loadFixture()
@@ -590,11 +579,13 @@ describe('SimplexController', () => {
         'SimplexController',
         [],
       )
+      const proxyAdmin = await proxyAdminOf(connection, controller.address)
       await expect(
-        controller.write.upgradeTo([newImpl.address], {
-          account: registrantAccount,
-        }),
-      ).toBeRevertedWithString('Ownable: caller is not the owner')
+        proxyAdmin.write.upgradeAndCall(
+          [controller.address, newImpl.address, '0x'],
+          { account: registrantAccount },
+        ),
+      ).toBeRevertedWithCustomError('OwnableUnauthorizedAccount')
     })
 
     it('owner can upgrade and storage is preserved', async () => {
@@ -606,9 +597,11 @@ describe('SimplexController', () => {
         'SimplexController',
         [],
       )
-      await controller.write.upgradeTo([newImpl.address], {
-        account: ownerAccount,
-      })
+      const proxyAdmin = await proxyAdminOf(connection, controller.address)
+      await proxyAdmin.write.upgradeAndCall(
+        [controller.address, newImpl.address, '0x'],
+        { account: ownerAccount },
+      )
 
       expect(await controller.read.minCharLength()).toBe(5)
       expect((await controller.read.namePolicy()).toLowerCase()).toBe(
@@ -622,9 +615,11 @@ describe('SimplexController', () => {
         'SimplexController',
         [],
       )
-      await controller.write.upgradeTo([newImpl.address], {
-        account: ownerAccount,
-      })
+      const proxyAdmin = await proxyAdminOf(connection, controller.address)
+      await proxyAdmin.write.upgradeAndCall(
+        [controller.address, newImpl.address, '0x'],
+        { account: ownerAccount },
+      )
       await commitAndRegister(controller, 'postupgrade', registrantAccount)
     })
 

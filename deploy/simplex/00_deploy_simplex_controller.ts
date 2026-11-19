@@ -59,8 +59,8 @@ export default deployScript(
 
     const proxy = await deploy('SimplexController', {
       account: deployer,
-      artifact: artifacts.SimplexControllerProxy,
-      args: [implementation.address, initData],
+      artifact: artifacts.TransparentUpgradeableProxy,
+      args: [implementation.address, owner, initData],
     })
 
     if (!proxy.newlyDeployed) return

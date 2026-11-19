@@ -1,9 +1,12 @@
 import hre from 'hardhat'
 import {
   encodeFunctionData,
+  getAddress,
+  getContractAddress,
   labelhash,
   namehash,
   parseEther,
+  toHex,
   zeroAddress,
   zeroHash,
 } from 'viem'
@@ -12,9 +15,11 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import {
   commitUnderGeneralTerms,
   COMMUNITY_TERMS_LINK,
+  deployBehindProxy,
   FAR_FUTURE,
   GENERAL_TERMS,
   GENERAL_TERMS_LINK,
+  implementationOf,
   MIN_REGISTRATION,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
@@ -22,6 +27,7 @@ import {
   signGeneralTermsAcceptance,
   signIntent,
   signRegistration,
+  storageLayout,
   YEAR,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
@@ -87,6 +93,7 @@ let dummyOracle: any
 let priceOracle: any
 let sponsor: any
 let namePolicy: any
+const proxied: Record<string, any> = {}
 
 const OWNABLE = 'Ownable: caller is not the owner'
 
@@ -120,15 +127,25 @@ function registration(label: string, owner: `0x${string}`, extra: any = {}) {
 }
 
 describe('launch lifecycle', () => {
-  describe('1. deployment — the deploy key owns everything', () => {
+  describe('1. deployment — the deploy key owns everything, the admin every ProxyAdmin', () => {
     beforeAll(async () => {
       const viem = connection.viem
-      ens = await viem.deployContract('ENSRegistry', [])
-      root = await viem.deployContract('Root', [ens.address])
-      baseRegistrar = await viem.deployContract(
+      proxied.ENSRegistry = await deployBehindProxy(
+        connection,
+        'ENSRegistry',
+        [],
+        admin.address,
+        [deployKey.address],
+      )
+      ens = proxied.ENSRegistry.contract
+      proxied.BaseRegistrarImplementation = await deployBehindProxy(
+        connection,
         'BaseRegistrarImplementation',
         [ens.address, TLD_NODE],
+        admin.address,
+        [ens.address, TLD_NODE, deployKey.address],
       )
+      baseRegistrar = proxied.BaseRegistrarImplementation.contract
       dummyOracle = await viem.deployContract('DummyOracle', [100000000n])
       priceOracle = await viem.deployContract('SimplexPriceOracle', [
         dummyOracle.address,
@@ -138,11 +155,12 @@ describe('launch lifecycle', () => {
       ])
       renderer = await viem.deployContract('MetadataRenderer', [`.${TLD}`])
 
-      const implementation = await viem.deployContract('SimplexController', [])
-      const initData = encodeFunctionData({
-        abi: implementation.abi,
-        functionName: 'initialize',
-        args: [
+      proxied.SimplexController = await deployBehindProxy(
+        connection,
+        'SimplexController',
+        [],
+        admin.address,
+        [
           baseRegistrar.address,
           priceOracle.address,
           1n, // minCommitmentAge: zero is refused by initialize
@@ -157,43 +175,42 @@ describe('launch lifecycle', () => {
           },
           deployKey.address,
         ],
-      })
-      const proxy = await viem.deployContract('SimplexControllerProxy', [
-        implementation.address,
-        initData,
-      ])
-      controller = await viem.getContractAt('SimplexController', proxy.address)
+      )
+      controller = proxied.SimplexController.contract
 
-      subnameRegistrar = await viem.deployContract('SubnameRegistrar', [
-        ens.address,
-        baseRegistrar.address,
-      ])
-      resolver = await viem.deployContract('SimplexResolver', [
-        ens.address,
-        subnameRegistrar.address,
-        controller.address,
-        zeroAddress,
-      ])
+      proxied.SubnameRegistrar = await deployBehindProxy(
+        connection,
+        'SubnameRegistrar',
+        [ens.address, baseRegistrar.address],
+        admin.address,
+      )
+      subnameRegistrar = proxied.SubnameRegistrar.contract
+      proxied.SimplexResolver = await deployBehindProxy(
+        connection,
+        'SimplexResolver',
+        [
+          ens.address,
+          subnameRegistrar.address,
+          controller.address,
+          zeroAddress,
+        ],
+        admin.address,
+      )
+      resolver = proxied.SimplexResolver.contract
       await subnameRegistrar.write.setResolver([resolver.address])
       sponsor = await viem.deployContract('SimplexSponsor', [controller.address])
-      const namePolicyImplementation = await viem.deployContract(
+      proxied.SimplexNamePolicy = await deployBehindProxy(
+        connection,
         'SimplexNamePolicy',
         [controller.address, baseRegistrar.address],
+        admin.address,
       )
-      const namePolicyProxy = await viem.deployContract(
-        'SimplexNamePolicyProxy',
-        [namePolicyImplementation.address, '0x'],
-      )
-      namePolicy = await viem.getContractAt(
-        'SimplexNamePolicy',
-        namePolicyProxy.address,
-      )
+      namePolicy = proxied.SimplexNamePolicy.contract
     })
 
-    it('gives the TLD to the registrar through Root', async () => {
-      await ens.write.setOwner([zeroHash, root.address])
-      await root.write.setController([deployKey.address, true])
-      await root.write.setSubnodeOwner([
+    it('gives the TLD to the registrar from the root', async () => {
+      await ens.write.setSubnodeOwner([
+        zeroHash,
         labelhash(TLD),
         baseRegistrar.address,
       ])
@@ -201,7 +218,36 @@ describe('launch lifecycle', () => {
         baseRegistrar.address.toLowerCase(),
       )
       expect((await ens.read.owner([zeroHash])).toLowerCase()).toBe(
-        root.address.toLowerCase(),
+        deployKey.address.toLowerCase(),
+      )
+    })
+
+    it('points eth-usd.data.eth at the price feed', async () => {
+      await ens.write.setSubnodeOwner([
+        zeroHash,
+        labelhash('eth'),
+        deployKey.address,
+      ])
+      await ens.write.setSubnodeOwner([
+        namehash('eth'),
+        labelhash('data'),
+        deployKey.address,
+      ])
+      await ens.write.setSubnodeOwner([
+        namehash('data.eth'),
+        labelhash('eth-usd'),
+        deployKey.address,
+      ])
+      await ens.write.setResolver([
+        namehash('eth-usd.data.eth'),
+        resolver.address,
+      ])
+      await resolver.write.setAddr([
+        namehash('eth-usd.data.eth'),
+        dummyOracle.address,
+      ])
+      expect(await resolver.read.addr([namehash('eth-usd.data.eth')])).toBe(
+        getAddress(dummyOracle.address),
       )
     })
 
@@ -243,10 +289,60 @@ describe('launch lifecycle', () => {
       )
     })
 
+    it('reads the six proxies back', async () => {
+      for (const [
+        name,
+        { contract, implementation, proxyAdmin },
+      ] of Object.entries(proxied)) {
+        expect(await implementationOf(connection, contract.address), name).toBe(
+          getAddress(implementation.address),
+        )
+        expect(proxyAdmin.address, name).toBe(
+          getContractAddress({ from: contract.address, nonce: 1n }),
+        )
+        expect(await proxyAdmin.read.owner(), name).toBe(
+          getAddress(admin.address),
+        )
+      }
+      for (const name of [
+        'ENSRegistry',
+        'BaseRegistrarImplementation',
+        'SimplexController',
+      ]) {
+        const { slot, offset } = (
+          await storageLayout(hre.artifacts, name)
+        ).find(({ label }) => label === '_initialized')!
+        const word = await publicClient.getStorageAt({
+          address: proxied[name].implementation.address,
+          slot: toHex(slot, { size: 32 }),
+        })
+        expect((BigInt(word!) >> BigInt(8 * offset)) & 0xffn, name).toBe(255n)
+      }
+      expect(await baseRegistrar.read.ens()).toBe(getAddress(ens.address))
+      expect(await baseRegistrar.read.baseNode()).toBe(TLD_NODE)
+      expect(await controller.read.ens()).toBe(getAddress(ens.address))
+      expect(await controller.read.tldNode()).toBe(TLD_NODE)
+      expect(await subnameRegistrar.read.ens()).toBe(getAddress(ens.address))
+      expect(await subnameRegistrar.read.baseRegistrar()).toBe(
+        getAddress(baseRegistrar.address),
+      )
+      const added = await publicClient.getContractEvents({
+        address: baseRegistrar.address,
+        abi: baseRegistrar.abi,
+        eventName: 'ControllerAdded',
+        fromBlock: 0n,
+      })
+      expect(added.map(({ args }: any) => args.controller)).toEqual([
+        getAddress(controller.address),
+        getAddress(namePolicy.address),
+      ])
+    })
+
     it('leaves sales closed and the TLD unlocked, so the deployment stays reversible', async () => {
       expect(await controller.read.publicSalesOpen()).toBe(false)
-      expect(await root.read.locked([labelhash(TLD)])).toBe(false)
-      expect(await controller.read.frozen()).toBe(false)
+      expect(await ens.read.owner([zeroHash])).toBe(
+        getAddress(deployKey.address),
+      )
       expect(BigInt(await controller.read.beneficiary())).toBe(0n)
     })
   })
@@ -302,23 +398,43 @@ describe('launch lifecycle', () => {
       ).toBeRevertedWithCustomError('NotBeneficiary')
     })
 
-    it('hands the controller over in two steps', async () => {
+    it('hands the controller and the oracle over in two steps', async () => {
       await controller.write.transferOwnership([admin.address])
+      await priceOracle.write.transferOwnership([admin.address])
       // still the deploy key until acceptance
       expect((await controller.read.owner()).toLowerCase()).toBe(
         deployKey.address.toLowerCase(),
       )
+      expect((await priceOracle.read.owner()).toLowerCase()).toBe(
+        deployKey.address.toLowerCase(),
+      )
       await controller.write.acceptOwnership({ account: admin })
+      await priceOracle.write.acceptOwnership({ account: admin })
       expect((await controller.read.owner()).toLowerCase()).toBe(
+        admin.address.toLowerCase(),
+      )
+      expect((await priceOracle.read.owner()).toLowerCase()).toBe(
         admin.address.toLowerCase(),
       )
     })
 
-    it('hands over the registrar and the root', async () => {
+    it('hands over the registrar, the registry nodes and the root', async () => {
       await baseRegistrar.write.transferOwnership([admin.address])
+      await ens.write.setOwner([namehash('eth-usd.data.eth'), zeroAddress])
+      await ens.write.setSubnodeOwner([
+        namehash('eth'),
+        labelhash('data'),
+        admin.address,
+      ])
+      await ens.write.setSubnodeOwner([
+        zeroHash,
+        labelhash('eth'),
+        admin.address,
+      ])
+      root = await connection.viem.deployContract('Root', [ens.address])
       await root.write.setController([admin.address, true])
-      await root.write.setController([deployKey.address, false])
       await root.write.transferOwnership([admin.address])
+      await ens.write.setOwner([zeroHash, root.address])
 
       expect((await baseRegistrar.read.owner()).toLowerCase()).toBe(
         admin.address.toLowerCase(),
@@ -350,6 +466,16 @@ describe('launch lifecycle', () => {
           account: deployKey,
         }),
       ).toBeRevertedWithString('Controllable: Caller is not a controller')
+      for (const { contract, implementation, proxyAdmin } of Object.values(
+        proxied,
+      )) {
+        await expect(
+          proxyAdmin.write.upgradeAndCall(
+            [contract.address, implementation.address, '0x'],
+            { account: deployKey },
+          ),
+        ).toBeRevertedWithCustomError('OwnableUnauthorizedAccount')
+      }
     })
 
     it('and cannot register on the credited path either', async () => {
@@ -382,6 +508,31 @@ describe('launch lifecycle', () => {
       expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
         ALLOWANCE,
       )
+    })
+
+    it('the second run reads the handover back', async () => {
+      const adminAddress = getAddress(admin.address)
+      for (const { proxyAdmin } of Object.values(proxied)) {
+        expect(await proxyAdmin.read.owner()).toBe(adminAddress)
+      }
+      expect(await controller.read.owner()).toBe(adminAddress)
+      expect(await controller.read.pendingOwner()).toBe(zeroAddress)
+      expect(await controller.read.beneficiary()).toBe(
+        getAddress(guardian.address),
+      )
+      expect(await baseRegistrar.read.owner()).toBe(adminAddress)
+      expect(await priceOracle.read.owner()).toBe(adminAddress)
+      expect(await priceOracle.read.pendingOwner()).toBe(zeroAddress)
+      expect(await ens.read.owner([zeroHash])).toBe(getAddress(root.address))
+      expect(await ens.read.owner([namehash('eth')])).toBe(adminAddress)
+      expect(await ens.read.owner([namehash('data.eth')])).toBe(adminAddress)
+      expect(await ens.read.owner([namehash('eth-usd.data.eth')])).toBe(
+        zeroAddress,
+      )
+      expect(await root.read.ens()).toBe(getAddress(ens.address))
+      expect(await root.read.owner()).toBe(adminAddress)
+      expect(await root.read.controllers([admin.address])).toBe(true)
+      expect(await root.read.locked([labelhash(TLD)])).toBe(false)
     })
   })
 
@@ -953,44 +1104,33 @@ describe('launch lifecycle', () => {
       ).toBeRevertedWithoutReason()
     })
 
-    it('confirms sales are open before the switch is sealed', async () => {
-      expect(await controller.read.publicSalesOpen()).toBe(true)
+    it('freezes each contract by renouncing its ProxyAdmin, and only the admin may', async () => {
+      for (const [name, { proxyAdmin }] of Object.entries(proxied)) {
+        await expect(
+          proxyAdmin.write.renounceOwnership({ account: guardian }),
+          name,
+        ).toBeRevertedWithCustomError('OwnableUnauthorizedAccount')
+        await proxyAdmin.write.renounceOwnership({ account: admin })
+        expect(await proxyAdmin.read.owner(), name).toBe(zeroAddress)
+      }
     })
 
-    it('freezes, and only the admin may', async () => {
-      await expect(
-        controller.write.freeze({ account: guardian }),
-      ).toBeRevertedWithString(OWNABLE)
-      await controller.write.freeze({ account: admin })
-      expect(await controller.read.frozen()).toBe(true)
-      await expect(
-        controller.write.freeze({ account: admin }),
-      ).toBeRevertedWithCustomError('AlreadyFrozen')
-    })
-
-    it('the implementation and the sponsor are permanent', async () => {
-      const next = await connection.viem.deployContract('SimplexController', [])
-      await expect(
-        controller.write.upgradeTo([next.address], { account: admin }),
-      ).toBeRevertedWithCustomError('Frozen')
-      await expect(
-        controller.write.upgradeToAndCall([next.address, '0x'], {
-          account: admin,
-        }),
-      ).toBeRevertedWithCustomError('Frozen')
-      await expect(
-        controller.write.setSponsor([next.address], { account: admin }),
-      ).toBeRevertedWithCustomError('Frozen')
-    })
-
-    it('the sales switch is sealed in the open position', async () => {
-      await expect(
-        controller.write.setPublicSalesOpen([false], { account: admin }),
-      ).toBeRevertedWithCustomError('Frozen')
-      await expect(
-        controller.write.setPublicSalesOpen([false], { account: guardian }),
-      ).toBeRevertedWithCustomError('Frozen')
-      expect(await controller.read.publicSalesOpen()).toBe(true)
+    it('the implementations are permanent', async () => {
+      for (const [
+        name,
+        { contract, implementation, proxyAdmin },
+      ] of Object.entries(proxied)) {
+        await expect(
+          proxyAdmin.write.upgradeAndCall(
+            [contract.address, implementation.address, '0x'],
+            { account: admin },
+          ),
+          name,
+        ).toBeRevertedWithCustomError('OwnableUnauthorizedAccount')
+        expect(await implementationOf(connection, contract.address), name).toBe(
+          getAddress(implementation.address),
+        )
+      }
     })
 
     it('brand outreach continues with no horizon', async () => {
@@ -1038,6 +1178,7 @@ describe('launch lifecycle', () => {
       await controller.write.setDefaultResolver([resolver.address], {
         account: admin,
       })
+      await controller.write.setSponsor([sponsor.address], { account: admin })
       await baseRegistrar.write.setMetadataRenderer([renderer.address], {
         account: admin,
       })

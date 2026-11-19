@@ -20,7 +20,7 @@ async function fixture() {
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
-// The controller sits behind ~250 slots of OpenZeppelin upgradeable gaps.
+// The controller sits behind ~150 slots of OpenZeppelin upgradeable gaps.
 const SCAN = 400
 
 async function snapshot(address: `0x${string}`) {
@@ -40,28 +40,23 @@ function changed(before: string[], after: string[]) {
 }
 
 /**
- * The controller is upgradeable until `freeze`, so its storage must stay
- * append-only and the new governance state must pack as designed: beneficiary
- * with frozen, and defaultResolver with publicSalesOpen. These assertions are
- * what catch a reordering that would silently corrupt a live proxy.
+ * The controller is upgradeable until its ProxyAdmin is renounced, so its
+ * storage must stay append-only and the new governance state must pack as
+ * designed: defaultResolver with publicSalesOpen. These assertions are what
+ * catch a reordering that would silently corrupt a live proxy.
  */
 describe('controller storage layout', () => {
-  it('beneficiary and frozen share one slot', async () => {
+  it('the beneficiary sits in its own slot', async () => {
     const { controller } = await load()
-    // `freeze` refuses while sales are closed; do it before the snapshot so the
-    // only slot this test observes changing is the one `frozen` lives in
-    await controller.write.setPublicSalesOpen([true], { account: owner })
     const before = await snapshot(controller.address)
-    await controller.write.freeze({ account: owner })
+    await controller.write.setBeneficiary([alice.address], {
+      account: guardian,
+    })
     const after = await snapshot(controller.address)
 
     const touched = changed(before, after)
     expect(touched).toHaveLength(1)
-    // that slot already held the beneficiary set in the fixture
-    const word = after[touched[0]]
-    expect(word.toLowerCase()).toContain(
-      guardian.address.slice(2).toLowerCase(),
-    )
+    expect(after[touched[0]]).toBe(pad(alice.address).toLowerCase())
   })
 
   it('defaultResolver and publicSalesOpen share one slot', async () => {
@@ -83,14 +78,16 @@ describe('controller storage layout', () => {
     await controller.write.setPublicSalesOpen([true], { account: owner })
     const [resolverSlot] = changed(base, await snapshot(controller.address))
 
-    const beforeFreeze = await snapshot(controller.address)
-    await controller.write.freeze({ account: owner })
+    const before = await snapshot(controller.address)
+    await controller.write.setBeneficiary([alice.address], {
+      account: guardian,
+    })
     const [beneficiarySlot] = changed(
-      beforeFreeze,
+      before,
       await snapshot(controller.address),
     )
 
-    // beneficiary/frozen, then the sponsor, then defaultResolver/publicSalesOpen
+    // beneficiary, then the sponsor, then defaultResolver/publicSalesOpen
     expect(resolverSlot - beneficiarySlot).toBe(2)
 
     // and the reentrancy guard, the last pre-existing variable, sits just before
