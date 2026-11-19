@@ -337,6 +337,9 @@ export const FAR_FUTURE = 4102444800n
 
 export const MIN_DISPUTE_DAYS = 14n
 
+export const passDisputePeriod = (connection: NetworkConnection) =>
+  connection.networkHelpers.time.increase(MIN_DISPUTE_DAYS * DAY)
+
 /** Sign one of the intents above against `verifyingContract`. */
 export async function signIntent(
   publicClient: any,

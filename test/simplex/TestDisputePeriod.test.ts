@@ -186,9 +186,8 @@ describe('dispute period', () => {
 
     it('gives the payable path and registerReserved no dispute period', async () => {
       const f = await load()
+      await paid(f, 'paidineth')
       expect(await f.baseRegistrar.read.disputeUntil([id('paidineth')])).toBe(0n)
-      const time = await paid(f, 'paidineth')
-      expect(await f.baseRegistrar.read.disputeUntil([id('paidineth')])).toBe(time)
       await f.namePolicy.write.addReservedNames(
         [['brandname'], Reason.Trademark],
         { account: guardian },
@@ -249,8 +248,16 @@ describe('dispute period', () => {
         f.baseRegistrar.read.ownerOf([id('disputed')]),
       ).toBeRevertedWithoutReason()
       expect(await f.ens.read.owner([node('disputed')])).toBe(zeroAddress)
+      expect(await f.ens.read.resolver([node('disputed')])).toBe(zeroAddress)
       expect(await f.resolver.read.text([node('disputed'), KEY])).toBe('')
       expect(await f.subnameRegistrar.read.ownerOf([sub])).toBe(zeroAddress)
+      expect(await f.subnameRegistrar.read.expiryOf([node('disputed')])).toBe(0n)
+      await f.subnameRegistrar.write.purge([node('disputed'), [labelhash('pay')]], {
+        account: carol,
+      })
+      expect(
+        await f.subnameRegistrar.read.childrenLength([node('disputed')]),
+      ).toBe(0n)
       await expect(
         f.resolver.write.setText([node('disputed'), KEY, 'https://smp/again'], {
           account: alice,
@@ -301,12 +308,12 @@ describe('dispute period', () => {
       })
       const sub = await withSubname(f, 'freedname')
       await unregister(f, 'freedname')
-      const time = await paid(f, 'freedname', bob)
+      await paid(f, 'freedname', bob)
       expect(await f.baseRegistrar.read.ownerOf([id('freedname')])).toBe(
         getAddress(bob.address),
       )
       expect(await f.baseRegistrar.read.balanceOf([alice.address])).toBe(0n)
-      expect(await f.baseRegistrar.read.disputeUntil([id('freedname')])).toBe(time)
+      expect(await f.baseRegistrar.read.disputeUntil([id('freedname')])).toBe(0n)
       expect(await f.subnameRegistrar.read.ownerOf([sub])).toBe(zeroAddress)
       expect(await f.resolver.read.text([node('freedname'), KEY])).toBe('')
     })
@@ -344,18 +351,34 @@ describe('dispute period', () => {
       expect(await f.ens.read.owner([node('soldearly')])).toBe(zeroAddress)
     })
 
-    it('ends a renewal made in the dispute period with the registration', async () => {
+    it('refuses a renewal on both paths until the dispute period ends', async () => {
       const f = await load()
-      await sponsored(f, 'renewedearly')
-      await acceptGeneralTermsForRenewal(connection, f.controller, 'renewedearly', YEAR, {
+      const until = await sponsored(f, 'renewlater')
+      await acceptGeneralTermsForRenewal(connection, f.controller, 'renewlater', YEAR, {
         account: alice,
       })
-      await f.controller.write.renew(['renewedearly', YEAR, zeroHash], {
+      await expect(
+        f.sponsor.write.renewWithCredit(['renewlater', YEAR, zeroHash, alice.address], {
+          account: registrar,
+        }),
+      ).toBeRevertedWithCustomErrorFrom(f.controller, 'DisputePeriodNotOver')
+      await exactly(until - 1n)
+      await expect(
+        f.controller.write.renew(['renewlater', YEAR, zeroHash], {
+          account: alice,
+          value: YEAR_PRICE_USD,
+          ...EXACT,
+        }),
+      ).toBeRevertedWithCustomError('DisputePeriodNotOver')
+      await exactly(until)
+      await f.controller.write.renew(['renewlater', YEAR, zeroHash], {
         account: alice,
         value: YEAR_PRICE_USD,
+        ...EXACT,
       })
-      await unregister(f, 'renewedearly')
-      expect(await f.baseRegistrar.read.nameExpires([id('renewedearly')])).toBe(0n)
+      expect(await f.baseRegistrar.read.nameExpires([id('renewlater')])).toBe(
+        until - MIN_DISPUTE_DAYS * DAY + MIN_REGISTRATION + YEAR,
+      )
     })
 
     it('is made on the registrar by a registrar controller only', async () => {
