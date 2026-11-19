@@ -172,6 +172,37 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
 
 ### Adding a variable — example
 
+5. **Every external function and event of the current implementation is kept**
+   by a candidate, with the same selector and meaning, unless removing one is
+   the purpose of the upgrade and the `INTENDED` input of
+   `scripts/prepare-upgrade.mjs` names it; the script refuses a candidate that
+   drops a selector or an event topic that `INTENDED` does not name. The other
+   contracts of the stack call the functions below, so once a caller is frozen
+   or immutable, these functions are a fixed interface.
+
+### Calls between the contracts of the stack
+
+| Called contract | Caller | Functions |
+|---|---|---|
+| `ENSRegistry` | `BaseRegistrarImplementation` | `owner`, `setResolver`, `setSubnodeOwner` |
+| `ENSRegistry` | `SimplexController` | `resolver`, `setRecord` |
+| `ENSRegistry` | `SimplexNamePolicy` | `resolver`, `setRecord` |
+| `ENSRegistry` | `SubnameRegistrar` | `owner`, `setSubnodeRecord`, `setResolver`, `setOwner` |
+| `ENSRegistry` | `SimplexResolver` | `owner` |
+| `ENSRegistry` | `Root` | `setSubnodeOwner`, `setResolver` |
+| `ENSRegistry` | `UniversalResolver` | `resolver` |
+| `BaseRegistrarImplementation` | `SimplexController` | `available`, `nameExpires`, `registerWithLabel`, `renew`, `transferFrom` |
+| `BaseRegistrarImplementation` | `SimplexNamePolicy` | `available`, `registerWithLabel`, `transferFrom` |
+| `SimplexController` | `SimplexNamePolicy` | `owner`, `beneficiary`, `defaultResolver`, `wasDefaultResolver`, `commitments`, `maxCommitmentAge`, `commit`; `ens` and `tldNode` in its constructor |
+| `SimplexController` | `SimplexSponsor` | `beneficiary`, `rentPriceUSD`, `registerSponsored`, `renewSponsored` |
+| `SubnameRegistrar` | `BaseRegistrarImplementation`, as its subname hook | `onReregister`, `onExpiryChanged` |
+| `SubnameRegistrar` | `SimplexResolver`, through its wrapper slot | `ownerOf(uint256)` |
+| `SimplexResolver` | `SubnameRegistrar` | `clearSubnameRecords` |
+| `SimplexResolver` | `SimplexController` | `clearRecords`, `multicallWithNodeCheck` |
+| `SimplexResolver` | `SimplexNamePolicy` | `clearRecords` |
+| `SimplexResolver` | `UniversalResolver` | `supportsInterface` and the resolver functions requested through it |
+| `SimplexNamePolicy` | `SimplexController` | `controller`, `isReserved`, `communityNames`, `consumeRegistration` |
+| `SimplexNamePolicy` | `BaseRegistrarImplementation` | `registrar`, `consumeTransfer` |
 ```solidity
    address public namePolicy;          // last existing variable, slot 169
 +  address public somethingNew;        // slot 170, one whole slot
