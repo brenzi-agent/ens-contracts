@@ -516,7 +516,14 @@ describe('reversible payments', () => {
           ),
         ),
       )
-      await register(f, 'boundrenew', { days: 0n })
+      const reg = registration('boundrenew', alice.address)
+      await commitUnderGeneralTerms(connection, f.controller, reg, {
+        account: alice,
+      })
+      await f.controller.write.register([reg], {
+        account: alice,
+        value: 2n * YEAR_PRICE_USD,
+      })
       await acceptRenewal(f, 'boundrenew')
       const args = await signRenewal(
         connection,
@@ -527,6 +534,7 @@ describe('reversible payments', () => {
         DAYS,
       )
       const [label, duration, referrer, holder, days, nonce, deadline, sig] = args
+      expect(await f.sponsor.read.nonces([bob.address])).toBe(nonce)
       for (const tampered of [
         [label, duration, referrer, holder, days - 1n, nonce, deadline, sig],
         [label, duration, referrer, bob.address, days, nonce, deadline, sig],
