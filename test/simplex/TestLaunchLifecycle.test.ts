@@ -17,6 +17,7 @@ import {
   GENERAL_TERMS,
   GENERAL_TERMS_LINK,
   MIN_REGISTRATION,
+  NOT_REVERSIBLE,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
   registerWithCredit,
@@ -89,6 +90,7 @@ let dummyOracle: any
 let priceOracle: any
 let sponsor: any
 let namePolicy: any
+let settlement: any
 
 const OWNABLE = 'Ownable: caller is not the owner'
 
@@ -178,9 +180,21 @@ describe('launch lifecycle', () => {
       ])
       await subnameRegistrar.write.setResolver([resolver.address])
       sponsor = await viem.deployContract('SimplexSponsor', [controller.address])
+      const settlementImplementation = await viem.deployContract(
+        'SimplexSettlement',
+        [controller.address, baseRegistrar.address],
+      )
+      const settlementProxy = await viem.deployContract(
+        'SimplexSettlementProxy',
+        [settlementImplementation.address, '0x'],
+      )
+      settlement = await viem.getContractAt(
+        'SimplexSettlement',
+        settlementProxy.address,
+      )
       const namePolicyImplementation = await viem.deployContract(
         'SimplexNamePolicy',
-        [controller.address, baseRegistrar.address],
+        [controller.address, baseRegistrar.address, settlement.address],
       )
       const namePolicyProxy = await viem.deployContract(
         'SimplexNamePolicyProxy',
@@ -207,8 +221,9 @@ describe('launch lifecycle', () => {
       )
     })
 
-    it('wires the registrar, resolver, renderer, sponsor and name policy', async () => {
+    it('wires the registrar, resolver, renderer, sponsor, settlement and name policy', async () => {
       await baseRegistrar.write.addController([controller.address])
+      await baseRegistrar.write.addController([settlement.address])
       await baseRegistrar.write.setMetadataRenderer([renderer.address])
       await baseRegistrar.write.setMaxLabelLength([63n])
       await baseRegistrar.write.setSubnameHook([subnameRegistrar.address])
@@ -239,6 +254,10 @@ describe('launch lifecycle', () => {
       expect((await baseRegistrar.read.namePolicy()).toLowerCase()).toBe(
         namePolicy.address.toLowerCase(),
       )
+      expect((await namePolicy.read.settlement()).toLowerCase()).toBe(
+        settlement.address.toLowerCase(),
+      )
+      expect(await baseRegistrar.read.controllers([settlement.address])).toBe(true)
       expect(await namePolicy.read.generalTermsLink()).toBe(GENERAL_TERMS_LINK)
       expect(await namePolicy.read.communityTermsLink()).toBe(
         COMMUNITY_TERMS_LINK,
@@ -553,7 +572,7 @@ describe('launch lifecycle', () => {
         ),
         { account: registrar },
       )
-      await sponsor.write.renewWithCredit([OWNED, YEAR, zeroHash, alice.address], {
+      await sponsor.write.renewWithCredit([OWNED, YEAR, zeroHash, alice.address, ...NOT_REVERSIBLE], {
         account: registrar,
       })
       expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)

@@ -151,7 +151,7 @@ export async function deployNamesV2(
     account: accounts.owner,
   })
 
-  const { namePolicy, namePolicyImplementation } = await deployNamePolicy(
+  const { namePolicy, namePolicyImplementation, settlement, settlementImplementation } = await deployNamePolicy(
     connection,
     controller,
     baseRegistrar,
@@ -165,6 +165,8 @@ export async function deployNamesV2(
     sponsor,
     namePolicy,
     namePolicyImplementation,
+    settlement,
+    settlementImplementation,
     implementation,
     resolver,
     subnameRegistrar,
@@ -180,9 +182,15 @@ export async function deployNamePolicy(
   owner: `0x${string}`,
 ) {
   const viem = connection.viem
+  const { settlement, settlementImplementation } = await deploySettlement(
+    connection,
+    controller,
+    baseRegistrar,
+  )
   const namePolicyImplementation = await viem.deployContract('SimplexNamePolicy', [
     controller.address,
     baseRegistrar.address,
+    settlement.address,
   ])
   const namePolicyProxy = await viem.deployContract('SimplexNamePolicyProxy', [
     namePolicyImplementation.address,
@@ -198,7 +206,26 @@ export async function deployNamePolicy(
     account: owner,
   })
   await baseRegistrar.write.setNamePolicy([namePolicy.address])
-  return { namePolicy, namePolicyImplementation }
+  return { namePolicy, namePolicyImplementation, settlement, settlementImplementation }
+}
+
+export async function deploySettlement(
+  connection: NetworkConnection,
+  controller: any,
+  baseRegistrar: any,
+) {
+  const viem = connection.viem
+  const settlementImplementation = await viem.deployContract('SimplexSettlement', [
+    controller.address,
+    baseRegistrar.address,
+  ])
+  const settlementProxy = await viem.deployContract('SimplexSettlementProxy', [
+    settlementImplementation.address,
+    '0x',
+  ])
+  const settlement = await viem.getContractAt('SimplexSettlement', settlementProxy.address)
+  await baseRegistrar.write.addController([settlement.address])
+  return { settlement, settlementImplementation }
 }
 
 /** A registration struct with the defaults every test here wants. */
@@ -277,6 +304,15 @@ export const eip712Types = {
     { name: 'duration', type: 'uint256' },
     { name: 'resolver', type: 'address' },
     { name: 'data', type: 'bytes[]' },
+    { name: 'reversibleDays', type: 'uint256' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+  RenewName: [
+    { name: 'label', type: 'string' },
+    { name: 'holder', type: 'address' },
+    { name: 'duration', type: 'uint256' },
+    { name: 'reversibleDays', type: 'uint256' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
@@ -386,8 +422,12 @@ export async function signRegistration<
   connection: NetworkConnection,
   sponsor: any,
   reg: R,
-  { signer, deadline = FAR_FUTURE }: { signer?: any; deadline?: bigint } = {},
-): Promise<[R, bigint, bigint, `0x${string}`]> {
+  {
+    signer,
+    deadline = FAR_FUTURE,
+    reversibleDays = 0n,
+  }: { signer?: any; deadline?: bigint; reversibleDays?: bigint } = {},
+): Promise<[R, bigint, bigint, bigint, `0x${string}`]> {
   const client =
     signer ??
     (await connection.viem.getWalletClients()).find(
@@ -407,11 +447,43 @@ export async function signRegistration<
       duration: reg.duration,
       resolver: reg.resolver,
       data: reg.data,
+      reversibleDays,
       nonce,
       deadline,
     },
   )
-  return [reg, nonce, deadline, sig]
+  return [reg, reversibleDays, nonce, deadline, sig]
+}
+
+export const NOT_REVERSIBLE = [0n, 0n, 0n, '0x'] as const
+
+export async function signRenewal(
+  connection: NetworkConnection,
+  sponsor: any,
+  label: string,
+  duration: bigint,
+  holder: `0x${string}`,
+  reversibleDays: bigint,
+  { signer, deadline = FAR_FUTURE }: { signer?: any; deadline?: bigint } = {},
+): Promise<
+  [string, bigint, `0x${string}`, `0x${string}`, bigint, bigint, bigint, `0x${string}`]
+> {
+  const client =
+    signer ??
+    (await connection.viem.getWalletClients()).find(
+      (c) => c.account.address.toLowerCase() === holder.toLowerCase(),
+    )
+  if (!client) throw new Error(`no wallet client for ${holder}`)
+  const nonce: bigint = await sponsor.read.nonces([holder])
+  const sig = await signIntent(
+    await connection.viem.getPublicClient(),
+    client,
+    'SimplexSponsor',
+    sponsor.address,
+    'RenewName',
+    { label, holder, duration, reversibleDays, nonce, deadline },
+  )
+  return [label, duration, zeroHash, holder, reversibleDays, nonce, deadline, sig]
 }
 
 /** `sponsor.registerWithCredit` for `reg`, signed by its owner. */

@@ -9,6 +9,7 @@ import {
   deployNamesV2,
   MIN_REGISTRATION,
   node,
+  NOT_REVERSIBLE,
   YEAR,
   YEAR_PRICE_USD,
 } from './fixtures/namesV2.js'
@@ -244,7 +245,7 @@ describe('a disputed name', () => {
       account: guardian,
     })
     await expect(
-      sponsor.write.renewWithCredit(['brandname', YEAR, zeroHash, brand.address], {
+      sponsor.write.renewWithCredit(['brandname', YEAR, zeroHash, brand.address, ...NOT_REVERSIBLE], {
         account: registrar,
       }),
     ).toBeRevertedWithCustomErrorFrom(controller, 'NameReserved')

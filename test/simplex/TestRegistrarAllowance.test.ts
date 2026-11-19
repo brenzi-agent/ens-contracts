@@ -7,6 +7,7 @@ import {
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
+  NOT_REVERSIBLE,
   registerWithCredit,
   registration,
   signRegistration,
@@ -270,7 +271,7 @@ describe('registrar allowance', () => {
     await acceptGeneralTermsForRenewal(connection, controller, 'renewable', YEAR, {
       account: alice,
     })
-    await sponsor.write.renewWithCredit(['renewable', YEAR, zeroHash, alice.address], {
+    await sponsor.write.renewWithCredit(['renewable', YEAR, zeroHash, alice.address, ...NOT_REVERSIBLE], {
       account: registrar,
     })
 
@@ -316,14 +317,14 @@ describe('registrar allowance', () => {
     await acceptGeneralTermsForRenewal(connection, controller, 'decade', 9n * YEAR, {
       account: alice,
     })
-    await sponsor.write.renewWithCredit(['decade', 9n * YEAR, zeroHash, alice.address], {
+    await sponsor.write.renewWithCredit(['decade', 9n * YEAR, zeroHash, alice.address, ...NOT_REVERSIBLE], {
       account: registrar,
     })
     await acceptGeneralTermsForRenewal(connection, controller, 'decade', YEAR, {
       account: alice,
     })
     await expect(
-      sponsor.write.renewWithCredit(['decade', YEAR, zeroHash, alice.address], {
+      sponsor.write.renewWithCredit(['decade', YEAR, zeroHash, alice.address, ...NOT_REVERSIBLE], {
         account: registrar,
       }),
     ).toBeRevertedWithCustomErrorFrom(controller, 'DurationTooLong')
