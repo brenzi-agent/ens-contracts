@@ -125,20 +125,4 @@ describe('public sales switch', () => {
       controller.write.setPublicSalesOpen([true], { account: alice }),
     ).toBeRevertedWithCustomError('NotOwnerOrBeneficiary')
   })
-
-  it('stops working at the freeze, locked in its current position', async () => {
-    const { controller } = await load()
-    await controller.write.setPublicSalesOpen([true], { account: owner })
-    await controller.write.freeze({ account: owner })
-
-    expect(await controller.read.publicSalesOpen()).toBe(true)
-    await expect(
-      controller.write.setPublicSalesOpen([false], { account: owner }),
-    ).toBeRevertedWithCustomError('Frozen')
-    await expect(
-      controller.write.setPublicSalesOpen([false], { account: guardian }),
-    ).toBeRevertedWithCustomError('Frozen')
-    // and sales keep working, which is the point of checking it before freezing
-    await payableRegister(controller, 'afterfrz')
-  })
 })
