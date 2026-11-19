@@ -1,3 +1,4 @@
+import type { ContractAbis } from '@nomicfoundation/hardhat-viem/types'
 import hre from 'hardhat'
 import {
   getAddress,
@@ -115,8 +116,8 @@ const stack = (f: Fixture) => [
   {
     name: 'ENSRegistry',
     contract: f.ens,
-    constructorArgs: [],
-    initializeArgs: [alice.address],
+    deployImplementation: () =>
+      connection.viem.deployContract('ENSRegistry', []),
     owner: () => f.ens.read.owner([zeroHash]),
     state: () =>
       Promise.all([
@@ -142,8 +143,11 @@ const stack = (f: Fixture) => [
   {
     name: 'BaseRegistrarImplementation',
     contract: f.baseRegistrar,
-    constructorArgs: [f.ens.address, TLD_NODE],
-    initializeArgs: [f.ens.address, TLD_NODE, alice.address],
+    deployImplementation: () =>
+      connection.viem.deployContract('BaseRegistrarImplementation', [
+        f.ens.address,
+        TLD_NODE,
+      ]),
     owner: () => f.baseRegistrar.read.owner(),
     state: () =>
       Promise.all([
@@ -166,12 +170,13 @@ const stack = (f: Fixture) => [
   {
     name: 'SimplexResolver',
     contract: f.resolver,
-    constructorArgs: [
-      f.ens.address,
-      f.subnameRegistrar.address,
-      f.controller.address,
-      zeroAddress,
-    ],
+    deployImplementation: () =>
+      connection.viem.deployContract('SimplexResolver', [
+        f.ens.address,
+        f.subnameRegistrar.address,
+        f.controller.address,
+        zeroAddress,
+      ]),
     state: () =>
       Promise.all([
         f.resolver.read.text([node(NAME), KEY]),
@@ -190,7 +195,11 @@ const stack = (f: Fixture) => [
   {
     name: 'SubnameRegistrar',
     contract: f.subnameRegistrar,
-    constructorArgs: [f.ens.address, f.baseRegistrar.address],
+    deployImplementation: () =>
+      connection.viem.deployContract('SubnameRegistrar', [
+        f.ens.address,
+        f.baseRegistrar.address,
+      ]),
     state: () =>
       Promise.all([
         f.subnameRegistrar.read.resolver(),
@@ -224,16 +233,8 @@ const stack = (f: Fixture) => [
   {
     name: 'SimplexController',
     contract: f.controller,
-    constructorArgs: [],
-    initializeArgs: [
-      f.baseRegistrar.address,
-      f.priceOracle.address,
-      60n,
-      86400n,
-      f.ens.address,
-      CONFIG,
-      alice.address,
-    ],
+    deployImplementation: () =>
+      connection.viem.deployContract('SimplexController', []),
     owner: () => f.controller.read.owner(),
     state: () =>
       Promise.all([
@@ -258,7 +259,11 @@ const stack = (f: Fixture) => [
   {
     name: 'SimplexNamePolicy',
     contract: f.namePolicy,
-    constructorArgs: [f.controller.address, f.baseRegistrar.address],
+    deployImplementation: () =>
+      connection.viem.deployContract('SimplexNamePolicy', [
+        f.controller.address,
+        f.baseRegistrar.address,
+      ]),
     owner: () => f.controller.read.owner(),
     state: () =>
       Promise.all([
@@ -287,11 +292,8 @@ const declares = (p: Proxied, functionName: string) =>
     (item: any) => item.type === 'function' && item.name === functionName,
   )
 
-const nextImplementation = (p: Proxied) =>
-  connection.viem.deployContract(p.name, p.constructorArgs)
-
 async function expectUpgraded(p: Proxied, account: Account) {
-  const next = await nextImplementation(p)
+  const next = await p.deployImplementation()
   const proxyAdmin = await proxyAdminOf(connection, p.contract.address)
   await proxyAdmin.write.upgradeAndCall(
     [p.contract.address, next.address, '0x'],
@@ -304,13 +306,12 @@ async function expectUpgraded(p: Proxied, account: Account) {
 
 async function expectUpgradeRefused(p: Proxied, account: Account) {
   const implementation = await implementationOf(connection, p.contract.address)
-  const next = await nextImplementation(p)
+  const next = await p.deployImplementation()
   const proxyAdmin = await proxyAdminOf(connection, p.contract.address)
   await expect(
     proxyAdmin.write.upgradeAndCall([p.contract.address, next.address, '0x'], {
       account,
     }),
-    p.name,
   ).toBeRevertedWithCustomError('OwnableUnauthorizedAccount')
   expect(await implementationOf(connection, p.contract.address), p.name).toBe(
     implementation,
@@ -319,18 +320,47 @@ async function expectUpgradeRefused(p: Proxied, account: Account) {
 
 async function expectUpgradeToAndCallRefused(p: Proxied, account: Account) {
   const implementation = await implementationOf(connection, p.contract.address)
-  const next = await nextImplementation(p)
+  const next = await p.deployImplementation()
   const proxy = await connection.viem.getContractAt(
     'ITransparentUpgradeableProxy',
     p.contract.address,
   )
   await expect(
     proxy.write.upgradeToAndCall([next.address, '0x'], { account }),
-    p.name,
   ).toBeRevertedWithoutReason()
   expect(await implementationOf(connection, p.contract.address), p.name).toBe(
     implementation,
   )
+}
+
+async function expectInitializeRefused(
+  f: Fixture,
+  registry: Fixture['ens'],
+  registrar: Fixture['baseRegistrar'],
+  controller: Fixture['controller'],
+) {
+  await expect(
+    registry.write.initialize([alice.address], { account: alice }),
+  ).toBeRevertedWithString(ALREADY_INITIALIZED)
+  await expect(
+    registrar.write.initialize([f.ens.address, TLD_NODE, alice.address], {
+      account: alice,
+    }),
+  ).toBeRevertedWithString(ALREADY_INITIALIZED)
+  await expect(
+    controller.write.initialize(
+      [
+        f.baseRegistrar.address,
+        f.priceOracle.address,
+        60n,
+        86400n,
+        f.ens.address,
+        CONFIG,
+        alice.address,
+      ],
+      { account: alice },
+    ),
+  ).toBeRevertedWithString(ALREADY_INITIALIZED)
 }
 
 async function gasOfCalls(f: Fixture) {
@@ -534,35 +564,35 @@ describe('upgradeable stack', () => {
     })
 
     it('a second initialize reverts', async () => {
-      const proxies = stack(await load()).filter((p) =>
-        declares(p, 'initialize'),
-      )
+      const f = await load()
+      const proxies = stack(f).filter((p) => declares(p, 'initialize'))
       expect(proxies.map((p) => p.name)).toEqual([
         'ENSRegistry',
         'BaseRegistrarImplementation',
         'SimplexController',
       ])
-      for (const p of proxies) {
-        await expect(
-          p.contract.write.initialize(p.initializeArgs, { account: alice }),
-          p.name,
-        ).toBeRevertedWithString(ALREADY_INITIALIZED)
-      }
+      await expectInitializeRefused(f, f.ens, f.baseRegistrar, f.controller)
     })
 
     it('initialize on the implementation reverts', async () => {
-      for (const p of stack(await load()).filter((p) =>
-        declares(p, 'initialize'),
-      )) {
-        const implementation = await connection.viem.getContractAt(
-          p.name,
-          await implementationOf(connection, p.contract.address),
+      const f = await load()
+      const implementation = async <ContractName extends keyof ContractAbis>(
+        name: ContractName,
+        proxy: `0x${string}`,
+      ) =>
+        connection.viem.getContractAt(
+          name,
+          await implementationOf(connection, proxy),
         )
-        await expect(
-          implementation.write.initialize(p.initializeArgs, { account: alice }),
-          p.name,
-        ).toBeRevertedWithString(ALREADY_INITIALIZED)
-      }
+      await expectInitializeRefused(
+        f,
+        await implementation('ENSRegistry', f.ens.address),
+        await implementation(
+          'BaseRegistrarImplementation',
+          f.baseRegistrar.address,
+        ),
+        await implementation('SimplexController', f.controller.address),
+      )
     })
   })
 
@@ -623,9 +653,8 @@ describe('upgradeable stack', () => {
     })
 
     it('DOMAIN_SEPARATOR reads the same after an upgrade', async () => {
-      const proxies = stack(await load()).filter((p) =>
-        declares(p, 'DOMAIN_SEPARATOR'),
-      )
+      const f = await load()
+      const proxies = stack(f).filter((p) => declares(p, 'DOMAIN_SEPARATOR'))
       expect(proxies.map((p) => p.name)).toEqual([
         'ENSRegistry',
         'BaseRegistrarImplementation',
@@ -633,11 +662,19 @@ describe('upgradeable stack', () => {
         'SubnameRegistrar',
         'SimplexNamePolicy',
       ])
+      const separators = () =>
+        Promise.all([
+          f.ens.read.DOMAIN_SEPARATOR(),
+          f.baseRegistrar.read.DOMAIN_SEPARATOR(),
+          f.resolver.read.DOMAIN_SEPARATOR(),
+          f.subnameRegistrar.read.DOMAIN_SEPARATOR(),
+          f.namePolicy.read.DOMAIN_SEPARATOR(),
+        ])
+      const before = await separators()
       for (const p of proxies) {
-        const before = await p.contract.read.DOMAIN_SEPARATOR()
         await expectUpgraded(p, admin)
-        expect(await p.contract.read.DOMAIN_SEPARATOR(), p.name).toBe(before)
       }
+      expect(await separators()).toEqual(before)
     })
 
     it('the ABIs of the six implementations exclude the UUPS selectors', async () => {
@@ -646,9 +683,7 @@ describe('upgradeable stack', () => {
           .filter((item: any) => item.type === 'function')
           .map((item: any) => toFunctionSelector(item))
         expect(
-          selectors.filter((selector: string) =>
-            UUPS_SELECTORS.includes(selector),
-          ),
+          selectors.filter((selector) => UUPS_SELECTORS.includes(selector)),
           p.name,
         ).toEqual([])
       }
