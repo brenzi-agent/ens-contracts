@@ -27,7 +27,7 @@ import {
   signIntent,
   signRegistration,
   storageLayout,
-  type StorageVariable,
+  type StorageMember,
   TLD,
   TLD_NODE,
   YEAR,
@@ -722,14 +722,23 @@ describe('upgradeable stack', () => {
     }, 120000)
 
     it('the storage layouts of the six implementations match their snapshot', async () => {
-      const lines = (variables: StorageVariable[], indent = ''): string[] =>
-        variables.flatMap(({ slot, offset, label, type, members }) => [
-          `${indent}${slot}:${offset} ${label} ${type}`,
-          ...lines(members, `${indent}  `),
-        ])
+      const lines = (members: StorageMember[], indent = ''): string[] =>
+        members.flatMap(
+          ({ slot, offset, numberOfBytes, label, type, members }) => [
+            `${indent}${slot}:${offset}+${numberOfBytes} ${label} ${type}`,
+            ...lines(members, `${indent}  `),
+          ],
+        )
       const layouts: Record<string, string[]> = {}
       for (const { name } of stack(await load())) {
-        layouts[name] = lines(await storageLayout(hre.artifacts, name))
+        layouts[name] = lines(
+          (await storageLayout(hre.artifacts, name)).map(
+            ({ contract, label, ...variable }) => ({
+              ...variable,
+              label: `${contract}.${label}`,
+            }),
+          ),
+        )
       }
       await expect(
         `${JSON.stringify(layouts, null, 2)}\n`,
