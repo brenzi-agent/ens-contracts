@@ -82,7 +82,7 @@ const id = (label: string) => BigInt(labelhash(label))
 const artifact = async (commit: string, name: string) =>
   JSON.parse(
     await readFile(
-      new URL(`./fixtures/artifacts/${commit}/${name}.json`, import.meta.url),
+      new URL(`./fixtures/builds/${commit}/${name}.json`, import.meta.url),
       'utf8',
     ),
   )
