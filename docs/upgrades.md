@@ -205,9 +205,10 @@ below it moves and `__gap` is untouched.
       `constant` and `immutable` values are exempt (invariant 4). The function
       passed as `data` runs with the `ProxyAdmin` as `msg.sender`: an
       `onlyOwner` function reverts there, a function that records its caller
-      records the `ProxyAdmin`, and `SimplexResolver.multicall` reverts
-      `ProxyDeniedAdminAccess`, since each of its `delegatecall`s to
-      `address(this)` runs the proxy's code with the same `msg.sender`.
+      records the `ProxyAdmin`, and `SimplexResolver.multicall` makes
+      `upgradeAndCall` revert `FailedCall()`: each of its `delegatecall`s to
+      `address(this)` runs the proxy's code with the same `msg.sender` and
+      reverts `ProxyDeniedAdminAccess`, which its `require(success)` discards.
 - [ ] **Guard the function passed as `data`.** In `ENSRegistry`,
       `BaseRegistrarImplementation` and `SimplexController` it is a
       `reinitializer(n)`. `SimplexNamePolicy`, `SubnameRegistrar` and
