@@ -2,7 +2,6 @@
 pragma solidity ~0.8.26;
 
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {Ownable2StepUpgradeable} from "@openzeppelin/contracts-upgradeable/access/Ownable2StepUpgradeable.sol";
 import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
@@ -33,13 +32,12 @@ uint256 constant MAX_SPONSORED_REGISTRATION = 4015 days;
 ///      - Reserved names (admin-managed blocklist)
 ///      - NFT gate (optional, for .testing TLD)
 ///
-///      Deployed behind an ERC1967 proxy (UUPS). The implementation has
+///      Deployed behind an ERC1967 transparent proxy. The implementation has
 ///      its initializers disabled in the constructor; storage lives in
 ///      the proxy and is preserved across upgrades.
 contract SimplexController is
     Initializable,
     Ownable2StepUpgradeable,
-    UUPSUpgradeable,
     IETHRegistrarController,
     ERC165
 {
@@ -54,12 +52,12 @@ contract SimplexController is
     // Implemented by hand rather than inheriting ReentrancyGuardUpgradeable so
     // the guard's state appends to the reserved `__gap` instead of inserting a
     // new base contract's storage ahead of existing variables — see
-    // docs/upgrades.md (this contract is already deployed behind a UUPS proxy).
+    // docs/upgrades.md (this contract is already deployed behind a proxy).
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
 
     // Was immutable in the non-upgradeable version. Converted to plain
-    // storage so values survive a UUPS upgrade rather than being baked
+    // storage so values survive an upgrade rather than being baked
     // into each implementation's bytecode.
     ENS public ens;
     BaseRegistrarImplementation base;
@@ -123,8 +121,6 @@ contract SimplexController is
     error ZeroAddress();
     error NotBeneficiary();
     error NotOwnerOrBeneficiary();
-    error AlreadyFrozen();
-    error Frozen();
     error PublicSalesClosed();
     error OwnerMustBeCaller();
     error NotSponsor();
@@ -155,7 +151,6 @@ contract SimplexController is
     event DefaultResolverChanged(address indexed resolver);
     event NamePolicyChanged(address indexed namePolicy);
     event PublicSalesOpenChanged(bool open);
-    event ContractFrozen();
 
     error ReentrantCall();
     error NamePolicyMismatch();
@@ -201,7 +196,6 @@ contract SimplexController is
         address _owner
     ) public initializer {
         __Ownable2Step_init();
-        __UUPSUpgradeable_init();
         _reentrancyStatus = _NOT_ENTERED;
 
         // Zero would let an observer commit and register in the same block as the
@@ -230,10 +224,6 @@ contract SimplexController is
         }
     }
 
-    function _authorizeUpgrade(address) internal view override onlyOwner {
-        if (frozen) revert Frozen();
-    }
-
     /// @notice Recover ERC20 tokens sent to this contract by mistake.
     function recoverFunds(
         address _token,
@@ -260,9 +250,8 @@ contract SimplexController is
 
     /// @notice The contract allowed to call `registerSponsored` and
     ///         `renewSponsored`: it stores the registrar allowances and verifies
-    ///         the owner's signature. Fixed by `freeze`, like the implementation.
+    ///         the owner's signature.
     function setSponsor(address newSponsor) external onlyOwner {
-        if (frozen) revert Frozen();
         sponsor = newSponsor;
         emit SponsorChanged(newSponsor);
     }
@@ -277,7 +266,6 @@ contract SimplexController is
         emit DefaultResolverChanged(resolver);
     }
 
-    /// @notice Survives `freeze`.
     function setNamePolicy(address newNamePolicy) external onlyOwner {
         if (newNamePolicy == address(0)) revert ZeroAddress();
         if (INamePolicyBinding(newNamePolicy).controller() != address(this))
@@ -287,34 +275,12 @@ contract SimplexController is
         emit NamePolicyChanged(newNamePolicy);
     }
 
-    /// @notice Open or close the payable registration path. Two-way until `freeze`,
-    ///         so it is also the pause switch. Held by the guardian as well as the
+    /// @notice Open or close the payable registration path, so it is also the
+    ///         pause switch. Held by the guardian as well as the
     ///         owner because an exploit in the payable path accrues harm per block.
     function setPublicSalesOpen(bool open) external onlyOwnerOrBeneficiary {
-        if (frozen) revert Frozen();
         publicSalesOpen = open;
         emit PublicSalesOpenChanged(open);
-    }
-
-    /// @notice One-way. Makes the implementation, the name policy's implementation and the
-    ///         sponsor permanent and locks the sales switch in its current position. Everything
-    ///         else the owner can do survives, including `setPriceOracle` and the name policy's
-    ///         setters.
-    /// @dev    Refuses while sales are closed. Freezing then would shut the
-    ///         payable path permanently — `setPublicSalesOpen` and the upgrade
-    ///         escape are disabled by the same flag — and the ordering is
-    ///         racy in practice: the pause is the guardian's, immediate, while
-    ///         the freeze is the owner's behind a timelock, so a pause answering
-    ///         an incident can land between a queued freeze and its execution.
-    ///         With this check that race fails safe: the freeze reverts and is
-    ///         re-queued. Also refuses while no sponsor is set, which would close
-    ///         the sponsored path for good.
-    function freeze() external onlyOwner {
-        if (frozen) revert AlreadyFrozen();
-        if (!publicSalesOpen) revert PublicSalesClosed();
-        if (sponsor == address(0)) revert ZeroAddress();
-        frozen = true;
-        emit ContractFrozen();
     }
 
     // --- Simplex admin functions ---
@@ -335,7 +301,7 @@ contract SimplexController is
         emit NftGateDisabled();
     }
 
-    /// @notice Swap the active price oracle. Survives `freeze`, and must: the
+    /// @notice Swap the active price oracle. The
     ///         Chainlink feed is immutable inside the oracle, so a retired feed
     ///         would otherwise end registration and renewal permanently.
     function setPriceOracle(IPriceOracleUSD newOracle) external onlyOwner {
@@ -682,11 +648,9 @@ contract SimplexController is
     uint256 private _reentrancyStatus;
 
     // --- names v2: governance, sponsor and pricing. 48 -> 45. ---
-    // Slot 1: beneficiary + frozen pack together.
+    // Slot 1: beneficiary.
     /// @dev Guardian key: the registrar allowance (on the sponsor), the sales switch, and `withdraw`'s payee.
     address public beneficiary;
-    /// @dev One-way. Blocks upgrades, the sales switch and the sponsor; nothing else.
-    bool public frozen;
     address public sponsor;
     // Slot 3: defaultResolver + publicSalesOpen pack together.
     /// @dev The resolver `registerReserved` points a brand's name at.
