@@ -6,9 +6,9 @@ const C = 'contracts/simplex/SimplexController.sol'
 const N = 'contracts/simplex/SimplexSponsor.sol'
 
 export const mutants = [
-  [R, 'disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp + disputePeriod;', ''],
-  [R, 'disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp + disputePeriod;', 'disputeUntil[id] = block.timestamp + disputePeriod;'],
-  [R, 'disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp + disputePeriod;', 'disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp;'],
+  [R, 'disputeUntil[id] = disputePeriod == 0\n            ? 0\n            : block.timestamp + disputePeriod;', ''],
+  [R, 'disputeUntil[id] = disputePeriod == 0\n            ? 0\n            : block.timestamp + disputePeriod;', 'disputeUntil[id] = block.timestamp + disputePeriod;'],
+  [R, 'disputeUntil[id] = disputePeriod == 0\n            ? 0\n            : block.timestamp + disputePeriod;', 'disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp;'],
   [R, 'if (block.timestamp >= disputeUntil[id]) revert DisputePeriodOver(id);', ''],
   [R, 'if (block.timestamp >= disputeUntil[id])', 'if (block.timestamp > disputeUntil[id])'],
   [R, 'delete disputeUntil[id];', ''],
@@ -16,8 +16,9 @@ export const mutants = [
   [R, 'ens.setSubnodeRecord(baseNode, bytes32(id), address(0), address(0), 0);', ''],
   [R, 'ens.setSubnodeRecord(baseNode, bytes32(id), address(0), address(0), 0);', 'ens.setSubnodeOwner(baseNode, bytes32(id), address(0));'],
   [R, 'ISubnameHook(subnameHook).onExpiryChanged(\n                keccak256(abi.encodePacked(baseNode, bytes32(id))),\n                0\n            );', ''],
-  [R, 'function unregister(uint256 id, uint256 until) external live onlyController {', 'function unregister(uint256 id, uint256 until) external live {'],
-  [R, 'if (disputeUntil[id] != until) revert DisputeUntilMismatch(until, disputeUntil[id]);', ''],
+  [R, ') external live onlyController {', ') external live {'],
+  [R, ') external live onlyController {', ') external onlyController {'],
+  [R, 'if (disputeUntil[id] != until)\n            revert DisputeUntilMismatch(until, disputeUntil[id]);', ''],
   [C, 'if (disputeDays < MIN_DISPUTE_DAYS || disputeDays > MAX_DISPUTE_DAYS)\n            revert DisputeDaysOutOfRange(disputeDays);', ''],
   [C, 'disputeDays < MIN_DISPUTE_DAYS ||', 'disputeDays <= MIN_DISPUTE_DAYS ||'],
   [C, '|| disputeDays > MAX_DISPUTE_DAYS', '|| disputeDays >= MAX_DISPUTE_DAYS'],
