@@ -2,7 +2,7 @@ import hre from 'hardhat'
 import { pad, toHex } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { deployNamesV2 } from './fixtures/namesV2.js'
+import { deployNamesV2, storageLayout } from './fixtures/namesV2.js'
 
 const connection = await hre.network.connect()
 const publicClient = await connection.viem.getPublicClient()
@@ -57,6 +57,12 @@ describe('controller storage layout', () => {
     const touched = changed(before, after)
     expect(touched).toHaveLength(1)
     expect(after[touched[0]]).toBe(pad(alice.address).toLowerCase())
+    const layout = await storageLayout(hre.artifacts, 'SimplexController')
+    expect(
+      layout
+        .filter(({ slot }) => slot === BigInt(touched[0]))
+        .map(({ label }) => label),
+    ).toEqual(['beneficiary'])
   })
 
   it('defaultResolver and publicSalesOpen share one slot', async () => {
