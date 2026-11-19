@@ -181,15 +181,18 @@ Same slot count, same slot size. `__gap` is untouched.
       behaviour works.
 - [ ] **Run `test/simplex/TestControllerStorageLayout.test.ts`.** It reads raw
       slots from a deployed proxy and asserts the packing and the reserved slots
-      directly, which catches a reorder the OZ plugin would also catch and a
-      deleted placeholder it would not.
+      directly.
 - [ ] **Review the new code for `delegatecall`.** A `delegatecall` to an address
       other than the contract itself runs that code against the proxy's
       storage, the ERC-1967 slots included.
 - [ ] **Review the new code for state written at construction.** A constructor
       or the initializer of a state variable writes the implementation's
-      storage, never the proxy's. `constant` and `immutable` values are exempt
-      (invariant 4).
+      storage, never the proxy's. A new implementation adds no such write;
+      state it needs is written by a function passed as the `data` of
+      `ProxyAdmin.upgradeAndCall`. The registry's root owner and the
+      registrar's `ens`, `baseNode` and owner, written by their constructors,
+      reach a proxy only because `initialize` writes them again at deployment.
+      `constant` and `immutable` values are exempt (invariant 4).
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
