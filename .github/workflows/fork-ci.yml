@@ -29,6 +29,6 @@ jobs:
             node -e 'const a=require(process.argv[1]); console.log(process.argv[2], (a.deployedBytecode.length-2)/2)' "./artifacts/contracts/$c.sol/$(basename $c).json" "$(basename $c)"
           done
 
-      - run: pnpm exec vitest run test/simplex
+      - run: pnpm exec vitest run test/simplex test/ethregistrar/TestBaseRegistrar.test.ts
         env:
           NODE_OPTIONS: --disable-warning=ExperimentalWarning
