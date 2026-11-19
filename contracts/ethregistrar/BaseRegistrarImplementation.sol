@@ -64,6 +64,7 @@ contract BaseRegistrarImplementation is
     error NamePolicyMismatch();
     error DisputePeriodOver(uint256 id);
     error DisputePeriodNotOver(uint256 id);
+    error DisputeUntilMismatch(uint256 id);
 
     /// v2.1.3 version of _isApprovedOrOwner which calls ownerOf(tokenId) and takes grace period into consideration instead of ERC721.ownerOf(tokenId);
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v2.1.3/contracts/token/ERC721/ERC721.sol#L187
@@ -227,7 +228,8 @@ contract BaseRegistrarImplementation is
         return expiries[id];
     }
 
-    function unregister(uint256 id) external live onlyController {
+    function unregister(uint256 id, uint256 until) external live onlyController {
+        if (disputeUntil[id] != until) revert DisputeUntilMismatch(id);
         if (block.timestamp >= disputeUntil[id]) revert DisputePeriodOver(id);
         delete disputeUntil[id];
         expiries[id] = 0;
