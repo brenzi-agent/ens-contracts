@@ -418,6 +418,16 @@ describe('dispute period', () => {
       expect(await f.resolver.read.text([node('repointed'), KEY])).toBe('')
     })
 
+    it('is not blocked by a holder who points the name at a contract that is no resolver', async () => {
+      const f = await load()
+      const until = await sponsored(f, 'blocking')
+      await f.ens.write.setResolver([node('blocking'), f.sponsor.address], {
+        account: alice,
+      })
+      await unregister(f, 'blocking', until)
+      expect(await f.baseRegistrar.read.nameExpires([id('blocking')])).toBe(0n)
+    })
+
     it('clears a past default resolver the name points at', async () => {
       const f = await load()
       const until = await sponsored(f, 'pastdefault', { resolver: f.resolver.address })

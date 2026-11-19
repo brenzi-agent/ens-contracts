@@ -402,7 +402,7 @@ contract SubnameRegistrar is ISubnameRegistrar {
     }
 
     /// @notice Called by BaseRegistrar whenever 2LD `node`'s expiry moves
-    ///         (registration or renewal), so subname authority can follow the
+    ///         (registration, renewal or unregistration), so subname authority can follow the
     ///         registration rather than the registry record it outlives.
     function onExpiryChanged(bytes32 node, uint256 expiry) external {
         if (msg.sender != baseRegistrar) revert NotBaseRegistrar();
