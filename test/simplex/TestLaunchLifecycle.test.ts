@@ -1,7 +1,4 @@
-import type {
-  ConstructorArgs,
-  ContractAbis,
-} from '@nomicfoundation/hardhat-viem/types'
+import type { ConstructorArgs } from '@nomicfoundation/hardhat-viem/types'
 import hre from 'hardhat'
 import {
   encodeFunctionData,
@@ -98,7 +95,16 @@ let dummyOracle: any
 let priceOracle: any
 let sponsor: any
 let namePolicy: any
-const proxied: Record<string, any> = {}
+const SIX_PROXIES = [
+  'ENSRegistry',
+  'BaseRegistrarImplementation',
+  'SimplexController',
+  'SubnameRegistrar',
+  'SimplexResolver',
+  'SimplexNamePolicy',
+] as const
+type Proxied = (typeof SIX_PROXIES)[number]
+const proxied: Partial<Record<Proxied, any>> = {}
 
 const OWNABLE = 'Ownable: caller is not the owner'
 
@@ -131,7 +137,7 @@ function registration(label: string, owner: `0x${string}`, extra: any = {}) {
   }
 }
 
-async function deployProxied<ContractName extends keyof ContractAbis>(
+async function deployProxied<ContractName extends Proxied>(
   name: ContractName,
   constructorArgs: ConstructorArgs<ContractName>,
   initializeArgs?: NoInfer<InitializeArgs<ContractName>>,
@@ -151,15 +157,8 @@ async function deployProxied<ContractName extends keyof ContractAbis>(
 }
 
 function sixProxies() {
-  expect(Object.keys(proxied)).toEqual([
-    'ENSRegistry',
-    'BaseRegistrarImplementation',
-    'SimplexController',
-    'SubnameRegistrar',
-    'SimplexResolver',
-    'SimplexNamePolicy',
-  ])
-  return proxied
+  expect(Object.keys(proxied)).toEqual(SIX_PROXIES)
+  return proxied as Record<Proxied, any>
 }
 
 describe('launch lifecycle', () => {
@@ -371,7 +370,7 @@ describe('launch lifecycle', () => {
         'ENSRegistry',
         'BaseRegistrarImplementation',
         'SimplexController',
-      ]) {
+      ] as const) {
         const { slot, offset } = (
           await storageLayout(hre.artifacts, name)
         ).find(({ label }) => label === '_initialized')!
