@@ -144,10 +144,10 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    the preceding slot, so `__gap` is unchanged by a `bool` after
    `SimplexController.namePolicy` (slot 169, offset 20). In a contract without
    `__gap`, a new variable is declared after the last one. Only the most
-   derived contract gains variables: one added to a base contract, such as
-   `PublicResolver` or one of its profiles, `ERC721`, `ERC721Enumerable` or
-   `Ownable` in a merge from upstream ENS, moves every variable declared after
-   it.
+   derived contract gains variables: one added to a base contract moves every
+   variable declared after it, as `PublicResolver` or one of its profiles can
+   gain one in a merge from upstream ENS, and `ERC721`, `ERC721Enumerable` or
+   `Ownable` in an upgrade of the OpenZeppelin dependency.
 2. **The label, slot, offset and type of an existing variable are unchanged.**
    Never reorder, remove, rename or retype one. The members of a stored struct
    are unchanged, and values are only appended to an enum.
