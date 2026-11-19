@@ -11,8 +11,7 @@ import {SimplexController} from "./SimplexController.sol";
 ///         for users against a spending limit the guardian sets, and attaches
 ///         no value; it registers a name to anyone but itself only with that
 ///         owner's `RegisterName` signature. The guardian is the controller's
-///         `beneficiary`, and the controller's owner can replace this contract
-///         until `freeze`.
+///         `beneficiary`, and the controller's owner can replace this contract.
 contract SimplexSponsor {
     bytes32 private constant _EIP712_DOMAIN_TYPEHASH =
         keccak256(

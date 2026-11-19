@@ -1,14 +1,13 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ~0.8.26;
 
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {BaseRegistrarImplementation} from "../ethregistrar/BaseRegistrarImplementation.sol";
 import {ENS} from "../registry/ENS.sol";
 import {INamePolicy} from "./INamePolicy.sol";
 import {IClearableResolver, MAX_REGISTRATION, MAX_SPONSORED_REGISTRATION, MIN_REGISTRATION, SimplexController} from "./SimplexController.sol";
 
-contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
+contract SimplexNamePolicy is INamePolicy {
     SimplexController public immutable controller;
     BaseRegistrarImplementation public immutable registrar;
     ENS private immutable _ens;
@@ -98,8 +97,6 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     error NameReserved(string name);
     error DurationTooShort(uint256 duration);
     error DurationTooLong(uint256 duration);
-    error Frozen();
-    error ImplementationMismatch();
     error NotProxy();
 
     constructor(
@@ -508,15 +505,6 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         unchecked {
             nonces[signer] = nonce + 1;
         }
-    }
-
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal view override onlyOwner {
-        if (controller.frozen()) revert Frozen();
-        SimplexNamePolicy next = SimplexNamePolicy(newImplementation);
-        if (next.controller() != controller || next.registrar() != registrar)
-            revert ImplementationMismatch();
     }
 
     string public communityTermsLink;
