@@ -23,7 +23,12 @@ Upgradeability is not permanent. A contract is frozen when the owner of its
 `ProxyAdmin` calls `renounceOwnership()`: from then on `upgradeAndCall`
 reverts, and the proxy's admin, an immutable, cannot be replaced. Each contract
 is frozen at a time of its own; everything in this document applies to a
-contract until its `ProxyAdmin` is renounced.
+contract until its `ProxyAdmin` is renounced. `renounceOwnership()` and
+`transferOwnership` go to the `ProxyAdmin`, the CREATE address of the proxy at
+nonce 1 that `scripts/prepare-upgrade.mjs` prints, never to the proxy:
+`BaseRegistrarImplementation` and `SimplexController` have functions with the
+same selectors, and the proxy passes a call of the `ProxyAdmin` owner on to
+them, which renounces or moves the contract's own ownership.
 
 ```mermaid
 flowchart LR
@@ -49,11 +54,11 @@ flowchart LR
   of the six implementations, and `test/simplex/TestUpgradeableStack.test.ts`
   compares the compiled layouts with it and checks the six ABIs for the
   selectors above. An upgrade that changes a layout updates the snapshot in the
-  same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`). Its
-  diff only appends: variables after every existing one, members at the end of
-  a struct, values at the end of an enum, and, where the contract has a
-  `__gap`, a `__gap` line moved by the slots the new variables take and
-  shortened by as many. Any other difference breaks the layout.
+  same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`), and
+  its diff follows invariants 1 and 2: new variables add lines before the
+  trailing `__gap`, or at the end of a contract without one; an enum's line
+  gains values at its end; the `__gap` line starts later and is shorter by the
+  whole slots the new variables occupy; every other line stays as it is.
 
 ## Storage model
 
@@ -100,10 +105,6 @@ uint256[43] private __gap;   // shrinks as state is added
 `_reentrancyStatus`, `[44]` with the four names-v2 slots, and `[43]` with
 `namePolicy`. It is the budget for future state.
 
-`sponsor` reuses the slot of names-v2's `registrarAllowance`, which no deployed
-proxy has held; a mapping's own slot is never written, so it reads as zero under
-either type. This is the one sanctioned exception to invariant 2.
-
 **Reserved slots.** Three kinds of placeholder exist, and all are deliberate:
 
 - `_unusedPriceOracleFrozen` — was `priceOracleFrozen`, kept when
@@ -116,9 +117,7 @@ either type. This is the one sanctioned exception to invariant 2.
   list moved to `SimplexNamePolicy`.
 
 None is written by anything. They exist so removing a feature does not shift
-every slot below it, and so the feature can be reintroduced by re-typing the slot
-rather than migrating storage. **Removing a variable is not a substitute for
-reserving its slot** — see invariant 2.
+every slot below it, and they keep their declarations (invariant 2).
 
 ### `Reason` is storage
 
@@ -127,25 +126,31 @@ member's position. Once `.simplex` has reservations, reordering or removing a
 member relabels every name reserved under it, with nothing on chain to detect
 it. Treat the enum as append-only from then on, and keep `None` at 0 — `delete`
 writes zero. The members of `NameEntry` share one slot in declaration order, so
-reordering them swaps the two lists; treat the struct as append-only too.
+reordering them swaps the two lists; keep them unchanged (invariant 2).
 
 ## Invariants (do not break these)
 
 1. **Append only, from the front of `__gap`.** A new state variable is declared
-   immediately *before* `__gap`, and `__gap`'s size is decremented by the number
-   of 32-byte slots it consumes (one slot for a `mapping`, `address`, `bool`,
-   `uintN`, `bytes32`; more for larger structs). Net slot count is unchanged.
-   In a contract without `__gap`, it is declared after the last variable. Only
-   the most derived contract gains variables: one added to a base contract,
-   such as `PublicResolver` or one of its profiles, `ERC721`,
-   `ERC721Enumerable` or `Ownable` in a merge from upstream ENS, moves every
-   variable declared after it.
-2. **Never reorder, remove, retype, or rename-with-different-type** an existing
-   state variable. Renaming with the identical type is fine (layout is by
-   position+type, not name); changing the type or order corrupts every slot
-   after it.
+   immediately *before* `__gap`. The trailing `__gap` keeps the slot it ends at
+   and is shortened by the whole slots the new variables occupy; a variable
+   packed into the unused bytes of the slot before it occupies none, so a
+   `bool` after `SimplexController.namePolicy` (slot 169, offset 20) leaves
+   `__gap` as it is. In a contract without `__gap`, a new variable is declared
+   after the last one. Only the most derived contract gains variables: one
+   added to a base contract, such as `PublicResolver` or one of its profiles,
+   `ERC721`, `ERC721Enumerable` or `Ownable` in a merge from upstream ENS,
+   moves every variable declared after it.
+2. **An existing variable keeps its label, slot, offset and type.** Never
+   reorder, remove, rename or retype one. The members of a stored struct stay
+   unchanged, and an enum gains values only at its end.
 3. **Never reorder the base contracts** in the `is (...)` list, and add no base
-   contract with storage — either moves storage.
+   contract with storage — either moves storage. `Initializable` stays at
+   `@openzeppelin/contracts-upgradeable` 4.9.3 in `ENSRegistry`,
+   `BaseRegistrarImplementation` and `SimplexController`: its `_initialized`
+   (in the registrar, slot 10, offset 20) is the only barrier against a second
+   `initialize`, and the 5.x `Initializable` reads an ERC-7201 slot that holds
+   zero in an existing proxy, so anyone could then call, for example,
+   `initialize(ens, baseNode, attacker)` on the registrar.
 4. `constant` / `immutable` values are compiled into the implementation, not
    stored in the proxy, so an upgrade replaces them. A new implementation keeps
    the value of each immutable unless changing it is the purpose of the
@@ -161,20 +166,16 @@ reordering them swaps the two lists; treat the struct as append-only too.
 ### Adding a variable — example
 
 ```solidity
-   mapping(address => bool) public wasDefaultResolver;   // last existing var
-+  address public somethingNew;       // new var: takes 1 slot, declared here
--  uint256[44] private __gap;
-+  uint256[43] private __gap;         // shrink by 1
+   address public namePolicy;          // last existing variable, slot 169
++  address public somethingNew;        // slot 170, one whole slot
+-  uint256[43] private __gap;
++  uint256[42] private __gap;          // slots 171-212, ends where it did
 ```
 
-### Removing a variable — reserve, do not delete
+### Retiring a variable — keep its declaration
 
-```solidity
--  IReverseRegistrar public reverseRegistrar;
-+  address private _unusedReverseRegistrar;   // slot reserved, nothing below moves
-```
-
-Same slot count, same slot size. `__gap` is untouched.
+A variable that falls out of use keeps its label, type and place, so nothing
+below it moves and `__gap` is untouched.
 
 ## Pre-upgrade checklist
 
@@ -184,11 +185,10 @@ Same slot count, same slot size. `__gap` is untouched.
       `receive`, and prints the calldata of `ProxyAdmin.upgradeAndCall`. Update
       `test/simplex/__snapshots__/storageLayouts.json` in the same commit and
       review its diff.
-- [ ] **Run the V2 upgrade test** (issue #9): deploy V1 behind a proxy, populate
-      state (min char length, NFT gate, oracle, beneficiary, the sponsor,
-      the sales switch, the name policy), upgrade to V2 through the
-      `ProxyAdmin`, and assert every V1 value survives unchanged and the new
-      behaviour works.
+- [ ] **Run an upgrade test of the contract being upgraded:** deploy its
+      deployed version behind a `TransparentUpgradeableProxy`, write every
+      stored variable, upgrade through the `ProxyAdmin` with the intended
+      `data`, and assert every value and the guard of the `data` function.
 - [ ] **Run `test/simplex/TestControllerStorageLayout.test.ts`.** It reads raw
       slots from a deployed proxy and asserts the packing and the reserved slots
       directly.
@@ -205,9 +205,10 @@ Same slot count, same slot size. `__gap` is untouched.
       `constant` and `immutable` values are exempt (invariant 4). The function
       passed as `data` runs with the `ProxyAdmin` as `msg.sender`: an
       `onlyOwner` function reverts there, a function that records its caller
-      records the `ProxyAdmin`, and `SimplexResolver.multicall` reverts
-      `ProxyDeniedAdminAccess`, since each of its `delegatecall`s to
-      `address(this)` runs the proxy's code with the same `msg.sender`.
+      records the `ProxyAdmin`, and `SimplexResolver.multicall` makes
+      `upgradeAndCall` revert `FailedCall()`: each of its `delegatecall`s to
+      `address(this)` runs the proxy's code with the same `msg.sender` and
+      reverts `ProxyDeniedAdminAccess`, which its `require(success)` discards.
 - [ ] **Guard the function passed as `data`.** In `ENSRegistry`,
       `BaseRegistrarImplementation` and `SimplexController` it is a
       `reinitializer(n)`. `SimplexNamePolicy`, `SubnameRegistrar` and
