@@ -23,7 +23,12 @@ Upgradeability is not permanent. A contract is frozen when the owner of its
 `ProxyAdmin` calls `renounceOwnership()`: from then on `upgradeAndCall`
 reverts, and the proxy's admin, an immutable, cannot be replaced. Each contract
 is frozen at a time of its own; everything in this document applies to a
-contract until its `ProxyAdmin` is renounced.
+contract until its `ProxyAdmin` is renounced. `renounceOwnership()` and
+`transferOwnership` go to the `ProxyAdmin`, the CREATE address of the proxy at
+nonce 1 that `scripts/prepare-upgrade.mjs` prints, never to the proxy:
+`BaseRegistrarImplementation` and `SimplexController` have functions with the
+same selectors, and the proxy passes a call of the `ProxyAdmin` owner on to
+them, which renounces or moves the contract's own ownership.
 
 ```mermaid
 flowchart LR
