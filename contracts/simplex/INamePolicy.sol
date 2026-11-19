@@ -1,7 +1,30 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ~0.8.26;
 
+interface ISettlement {
+    function open(
+        uint256 id,
+        uint256 reversibleDays,
+        uint256 duration,
+        bool renewal
+    ) external returns (uint256 extension);
+
+    function reversiblePayment(
+        uint256 id
+    )
+        external
+        view
+        returns (
+            uint256 reversibleUntil,
+            uint256 paidExpires,
+            bool reversed,
+            bool renewal
+        );
+}
+
 interface INamePolicy {
+    function settlement() external view returns (ISettlement);
+
     function consumeRegistration(
         string calldata label,
         bytes32 labelhash,

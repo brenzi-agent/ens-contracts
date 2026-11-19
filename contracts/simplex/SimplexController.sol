@@ -282,6 +282,10 @@ contract SimplexController is
         if (newNamePolicy == address(0)) revert ZeroAddress();
         if (INamePolicyBinding(newNamePolicy).controller() != address(this))
             revert NamePolicyMismatch();
+        if (
+            namePolicy != address(0) &&
+            INamePolicy(newNamePolicy).settlement() != INamePolicy(namePolicy).settlement()
+        ) revert NamePolicyMismatch();
         INamePolicy(newNamePolicy).isReserved(0);
         namePolicy = newNamePolicy;
         emit NamePolicyChanged(newNamePolicy);
@@ -465,7 +469,7 @@ contract SimplexController is
         uint256 totalPrice = price.base + price.premium;
         if (msg.value < totalPrice) revert InsufficientValue();
 
-        _registerCore(registration, labelhash, price);
+        _registerCore(registration, labelhash, price, registration.duration);
 
         if (msg.value > totalPrice) {
             (bool ok, ) = payable(msg.sender).call{value: msg.value - totalPrice}("");
@@ -477,19 +481,28 @@ contract SimplexController is
     ///         The fee would have gone to the controller and been withdrawn back
     ///         to the same treasury, so it is removed rather than performed.
     function registerSponsored(
-        Registration calldata registration
+        Registration calldata registration,
+        uint256 reversibleDays
     ) external onlySponsor nonReentrant {
         bytes32 labelhash = keccak256(bytes(registration.label));
         if (registration.duration > _sponsoredHorizon(labelhash))
             revert DurationTooLong(registration.duration);
         _checkSimplexGates(registration.label, false);
 
+        uint256 term = registration.duration;
+        if (reversibleDays != 0)
+            term = INamePolicy(namePolicy).settlement().open(
+                uint256(labelhash),
+                reversibleDays,
+                registration.duration,
+                false
+            );
         // Zero cost in the event, and no `_rentPrice` call: nothing is paid on
         // this path, so the wei figure would be a quote rather than a payment —
         // and reading it would couple the sponsored flow to the ETH/USD feed,
         // which is the one dependency this path exists without. What was
         // actually consumed is in the sponsor's `RegistrarAllowanceSpent`, in attoUSD.
-        _registerCore(registration, labelhash, IPriceOracle.Price(0, 0));
+        _registerCore(registration, labelhash, IPriceOracle.Price(0, 0), term);
     }
 
     /// @dev Everything both registration paths share: availability, the
@@ -497,7 +510,8 @@ contract SimplexController is
     function _registerCore(
         Registration calldata registration,
         bytes32 labelhash,
-        IPriceOracle.Price memory price
+        IPriceOracle.Price memory price,
+        uint256 term
     ) private returns (uint256 expires) {
         if (!_available(registration.label, labelhash))
             revert NameNotAvailable(registration.label);
@@ -541,13 +555,13 @@ contract SimplexController is
             expires = base.registerWithLabel(
                 registration.label,
                 registration.owner,
-                registration.duration
+                term
             );
         } else {
             expires = base.registerWithLabel(
                 registration.label,
                 address(this),
-                registration.duration
+                term
             );
 
             ens.setRecord(
@@ -590,7 +604,7 @@ contract SimplexController is
         IPriceOracle.Price memory price = _rentPrice(label, labelhash, duration);
         if (msg.value < price.base) revert InsufficientValue();
 
-        _renewCore(label, labelhash, duration, price.base, referrer, MAX_REGISTRATION_DURATION, msg.sender);
+        _renewCore(label, labelhash, duration, price.base, referrer, MAX_REGISTRATION_DURATION, msg.sender, 0);
 
         if (msg.value > price.base) {
             (bool ok, ) = payable(msg.sender).call{value: msg.value - price.base}("");
@@ -603,11 +617,12 @@ contract SimplexController is
         string calldata label,
         uint256 duration,
         bytes32 referrer,
-        address holder
+        address holder,
+        uint256 reversibleDays
     ) external onlySponsor nonReentrant {
         bytes32 labelhash = keccak256(bytes(label));
         // zero cost, and no feed read — see `registerSponsored`
-        _renewCore(label, labelhash, duration, 0, referrer, _sponsoredHorizon(labelhash), holder);
+        _renewCore(label, labelhash, duration, 0, referrer, _sponsoredHorizon(labelhash), holder, reversibleDays);
     }
 
     function _sponsoredHorizon(bytes32 labelhash) private view returns (uint256) {
@@ -623,15 +638,24 @@ contract SimplexController is
         uint256 cost,
         bytes32 referrer,
         uint256 horizon,
-        address holder
+        address holder,
+        uint256 reversibleDays
     ) private returns (uint256 expires) {
         if (duration < MIN_RENEWAL_DURATION) revert DurationTooShort(duration);
         if (INamePolicy(namePolicy).isReserved(labelhash))
             revert NameReserved(label);
         INamePolicy(namePolicy).consumeRenewal(label, labelhash, duration, holder);
+        uint256 extension = duration;
+        if (reversibleDays != 0)
+            extension = INamePolicy(namePolicy).settlement().open(
+                uint256(labelhash),
+                reversibleDays,
+                duration,
+                true
+            );
 
-        expires = base.renew(uint256(labelhash), duration);
-        if (expires > block.timestamp + horizon) revert DurationTooLong(duration);
+        expires = base.renew(uint256(labelhash), extension);
+        if (expires + duration - extension > block.timestamp + horizon) revert DurationTooLong(duration);
 
         emit NameRenewed(label, labelhash, cost, expires, referrer);
     }

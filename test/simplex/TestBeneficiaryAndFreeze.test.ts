@@ -2,7 +2,7 @@ import hre from 'hardhat'
 import { encodeFunctionData, parseEther, zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
-import { acceptGeneralTermsForRenewal, AMPLE_ALLOWANCE, commitUnderGeneralTerms, deployNamesV2, MIN_REGISTRATION, registerWithCredit, registration, YEAR } from './fixtures/namesV2.js'
+import { acceptGeneralTermsForRenewal, AMPLE_ALLOWANCE, commitUnderGeneralTerms, deployNamesV2, MIN_REGISTRATION, NOT_REVERSIBLE, registerWithCredit, registration, YEAR } from './fixtures/namesV2.js'
 
 const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
 
@@ -215,7 +215,7 @@ describe('freeze', () => {
     await acceptGeneralTermsForRenewal(connection, controller, 'afterfreeze', YEAR, {
       account: alice,
     })
-    await sponsor.write.renewWithCredit(['afterfreeze', YEAR, zeroHash, alice.address], {
+    await sponsor.write.renewWithCredit(['afterfreeze', YEAR, zeroHash, alice.address, ...NOT_REVERSIBLE], {
       account: registrar,
     })
   })

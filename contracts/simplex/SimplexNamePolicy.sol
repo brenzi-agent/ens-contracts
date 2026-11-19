@@ -5,12 +5,13 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {BaseRegistrarImplementation} from "../ethregistrar/BaseRegistrarImplementation.sol";
 import {ENS} from "../registry/ENS.sol";
-import {INamePolicy} from "./INamePolicy.sol";
+import {INamePolicy, ISettlement} from "./INamePolicy.sol";
 import {IClearableResolver, MAX_REGISTRATION, MAX_SPONSORED_REGISTRATION, MIN_REGISTRATION, SimplexController} from "./SimplexController.sol";
 
 contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     SimplexController public immutable controller;
     BaseRegistrarImplementation public immutable registrar;
+    ISettlement public immutable settlement;
     ENS private immutable _ens;
     bytes32 private immutable _tldNode;
     address private immutable _self = address(this);
@@ -111,13 +112,17 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     error Frozen();
     error ImplementationMismatch();
     error NotProxy();
+    error PaymentReversed(string name);
+    error PaymentNotSettled(string name);
 
     constructor(
         SimplexController _controller,
-        BaseRegistrarImplementation _registrar
+        BaseRegistrarImplementation _registrar,
+        ISettlement _settlement
     ) {
         controller = _controller;
         registrar = _registrar;
+        settlement = _settlement;
         _ens = _controller.ens();
         _tldNode = _controller.tldNode();
     }
@@ -503,6 +508,8 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     ) external {
         if (msg.sender != address(registrar)) revert NotRegistrar();
         if (address(this) == _self) revert NotProxy();
+        (, , bool reversed, ) = settlement.reversiblePayment(tokenId);
+        if (reversed) revert PaymentReversed(label);
         bytes32 accepted = acceptedClaimTerms[tokenId][from][to][offer];
         delete acceptedClaimTerms[tokenId][from][to][offer];
         _confirmAcceptance(_names[bytes32(tokenId)].community, accepted, label, to);
@@ -519,6 +526,8 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         uint256 tokenId = uint256(labelhash);
         uint256 expires = registrar.nameExpires(tokenId);
         if (!_holds(holder, tokenId, expires)) revert NotHolder(label);
+        (uint256 reversibleUntil, , , ) = settlement.reversiblePayment(tokenId);
+        if (reversibleUntil != 0) revert PaymentNotSettled(label);
         bytes32 accepted = acceptedRenewalTerms[tokenId][holder][expires][duration];
         delete acceptedRenewalTerms[tokenId][holder][expires][duration];
         _confirmAcceptance(_names[labelhash].community, accepted, label, holder);
@@ -648,8 +657,11 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     ) internal view override onlyOwner {
         if (controller.frozen()) revert Frozen();
         SimplexNamePolicy next = SimplexNamePolicy(newImplementation);
-        if (next.controller() != controller || next.registrar() != registrar)
-            revert ImplementationMismatch();
+        if (
+            next.controller() != controller ||
+            next.registrar() != registrar ||
+            next.settlement() != settlement
+        ) revert ImplementationMismatch();
     }
 
     string public communityTermsLink;
