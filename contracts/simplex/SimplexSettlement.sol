@@ -67,8 +67,7 @@ contract SimplexSettlement is ISettlement, UUPSUpgradeable {
         if (address(this) == _self) revert NotProxy();
         if (reversibleDays > MAX_REVERSIBLE_DAYS)
             revert ReversibleDaysTooMany(reversibleDays);
-        Entry memory current = _entries[id];
-        if (current.reversed && _inEffect(id, current))
+        if (renewal && _inEffect(id, _entries[id]))
             revert RenewalReversed(bytes32(id));
         uint256 start = renewal ? registrar.nameExpires(id) : block.timestamp;
         uint256 reversibleUntil = block.timestamp + reversibleDays * 1 days;
