@@ -107,12 +107,16 @@ async function paid(f: Fixture, label: string, holder: Account = alice) {
   )
 }
 
-const unregister = (
+const unregister = async (
   f: Fixture,
   label: string,
   account: Account = guardian,
   options = {},
-) => f.controller.write.unregister([label], { account, ...options })
+) =>
+  f.controller.write.unregister(
+    [label, await f.baseRegistrar.read.disputeUntil([id(label)])],
+    { account, ...options },
+  )
 
 async function withSubname(f: Fixture, label: string) {
   await f.ens.write.setApprovalForAll([f.subnameRegistrar.address, true], {
@@ -330,6 +334,21 @@ describe('dispute period', () => {
       expect(await f.baseRegistrar.read.disputeUntil([id('secondsale')])).toBe(until)
     })
 
+    it('refuses an unregistration prepared for an earlier registration of the name', async () => {
+      const f = await load()
+      const first = await sponsored(f, 'resold')
+      await unregister(f, 'resold')
+      const second = await sponsored(f, 'resold', { holder: bob })
+      await expect(
+        f.controller.write.unregister(['resold', first], { account: guardian }),
+      ).toBeRevertedWithCustomErrorFrom(f.baseRegistrar, 'DisputeUntilMismatch')
+      expect(await f.baseRegistrar.read.ownerOf([id('resold')])).toBe(
+        getAddress(bob.address),
+      )
+      await f.controller.write.unregister(['resold', second], { account: guardian })
+      expect(await f.baseRegistrar.read.nameExpires([id('resold')])).toBe(0n)
+    })
+
     it('takes the name from a recipient of a claim in the dispute period', async () => {
       const f = await load()
       await sponsored(f, 'soldearly')
@@ -430,10 +449,10 @@ describe('dispute period', () => {
 
     it('is made on the registrar by a registrar controller only', async () => {
       const f = await load()
-      await sponsored(f, 'directcall')
+      const until = await sponsored(f, 'directcall')
       for (const account of [owner, guardian, alice])
         await expect(
-          f.baseRegistrar.write.unregister([id('directcall')], { account }),
+          f.baseRegistrar.write.unregister([id('directcall'), until], { account }),
         ).toBeRevertedWithoutReason()
       expect(await f.baseRegistrar.read.ownerOf([id('directcall')])).toBe(
         getAddress(alice.address),
