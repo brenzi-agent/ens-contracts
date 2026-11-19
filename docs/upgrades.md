@@ -50,9 +50,10 @@ flowchart LR
   compares the compiled layouts with it and checks the six ABIs for the
   selectors above. An upgrade that changes a layout updates the snapshot in the
   same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`). Its
-  diff adds lines for new variables after every existing one and, where the
-  contract has a `__gap`, moves the `__gap` line by the slots they take and
-  shortens it by as many; any other difference breaks the layout.
+  diff only appends: variables after every existing one, members at the end of
+  a struct, values at the end of an enum, and, where the contract has a
+  `__gap`, a `__gap` line moved by the slots the new variables take and
+  shortened by as many. Any other difference breaks the layout.
 
 ## Storage model
 
