@@ -218,6 +218,12 @@ it is moved and `__gap` is untouched.
       `multicall` to `address(this)` is executed by the proxy's code with the
       same `msg.sender` and reverts `ProxyDeniedAdminAccess`, an error discarded
       by `require(success)`.
+- [ ] **Review the new immutables.** A new immutable is assigned from
+      constructor arguments only: at construction, `address(this)` is the
+      implementation and `msg.sender` its deployer, so a domain separator or an
+      owner derived from either is wrong under the proxy.
+      `SimplexNamePolicy._self` and `SubnameRegistrar._deployer` hold the
+      implementation and its deployer by design.
 - [ ] **Guard the function passed as `data`.** In each of the six contracts it
       reverts unless `msg.sender` equals the immutable `_proxyAdmin`, the
       proxy's `ProxyAdmin` (its CREATE address at nonce 1), passed to the new
