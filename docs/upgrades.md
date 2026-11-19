@@ -259,14 +259,15 @@ it is moved and `__gap` is untouched.
 - [ ] **Guard the function passed as `data`.** In each of the six contracts it
       reverts unless `msg.sender` equals the immutable `_proxyAdmin`, the
       proxy's `ProxyAdmin` (its CREATE address at nonce 1), passed to the new
-      implementation as a constructor argument. In `ENSRegistry`,
-      `BaseRegistrarImplementation` and `SimplexController` it is also a
-      `reinitializer(n)`. `scripts/prepare-upgrade.mjs` passes the proxy's
-      `ProxyAdmin` automatically to a constructor input named `_proxyAdmin`,
-      checks the immutable `_proxyAdmin` against that `ProxyAdmin`, refuses a
-      non-empty `data` for a candidate without a `_proxyAdmin` immutable,
-      refuses code that contains an ERC-1967 slot, encodes the `data`, and
-      simulates the upgrade.
+      implementation as the constructor input `proxyAdmin`; an input named
+      `_proxyAdmin` would shadow the immutable and leave it zero. In
+      `ENSRegistry`, `BaseRegistrarImplementation` and `SimplexController` it is
+      also a `reinitializer(n)`. `scripts/prepare-upgrade.mjs` passes the
+      proxy's `ProxyAdmin` automatically to a constructor input named
+      `proxyAdmin`, checks the immutable `_proxyAdmin` against that
+      `ProxyAdmin`, refuses a non-empty `data` for a candidate without a
+      `_proxyAdmin` immutable, refuses code that contains an ERC-1967 slot,
+      encodes the `data`, and simulates the upgrade.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
