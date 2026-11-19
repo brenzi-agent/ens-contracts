@@ -289,6 +289,17 @@ describe('launch lifecycle', () => {
       )
     })
 
+    it('sets the beneficiary in the wiring, while it is still unset', async () => {
+      await controller.write.setBeneficiary([guardian.address])
+      expect((await controller.read.beneficiary()).toLowerCase()).toBe(
+        guardian.address.toLowerCase(),
+      )
+      // the owner has spent its one chance
+      await expect(
+        controller.write.setBeneficiary([bob.address], { account: deployKey }),
+      ).toBeRevertedWithCustomError('NotBeneficiary')
+    })
+
     it('reads the six proxies back', async () => {
       for (const [
         name,
@@ -322,6 +333,9 @@ describe('launch lifecycle', () => {
       expect(await baseRegistrar.read.baseNode()).toBe(TLD_NODE)
       expect(await controller.read.ens()).toBe(getAddress(ens.address))
       expect(await controller.read.tldNode()).toBe(TLD_NODE)
+      expect(await controller.read.beneficiary()).toBe(
+        getAddress(guardian.address),
+      )
       expect(await subnameRegistrar.read.ens()).toBe(getAddress(ens.address))
       expect(await subnameRegistrar.read.baseRegistrar()).toBe(
         getAddress(baseRegistrar.address),
@@ -343,7 +357,6 @@ describe('launch lifecycle', () => {
       expect(await ens.read.owner([zeroHash])).toBe(
         getAddress(deployKey.address),
       )
-      expect(BigInt(await controller.read.beneficiary())).toBe(0n)
     })
   })
 
@@ -387,17 +400,6 @@ describe('launch lifecycle', () => {
   })
 
   describe('3. the governance handover', () => {
-    it('sets the beneficiary first, while it is still unset', async () => {
-      await controller.write.setBeneficiary([guardian.address])
-      expect((await controller.read.beneficiary()).toLowerCase()).toBe(
-        guardian.address.toLowerCase(),
-      )
-      // the owner has spent its one chance
-      await expect(
-        controller.write.setBeneficiary([bob.address], { account: deployKey }),
-      ).toBeRevertedWithCustomError('NotBeneficiary')
-    })
-
     it('hands over the registrar, the registry nodes and the root', async () => {
       await baseRegistrar.write.transferOwnership([admin.address])
       await ens.write.setOwner([namehash('eth-usd.data.eth'), zeroAddress])
