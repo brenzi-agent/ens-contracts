@@ -24,6 +24,7 @@ import {
   GENERAL_TERMS,
   GENERAL_TERMS_LINK,
   implementationOf,
+  type InitializeArgs,
   MIN_REGISTRATION,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
@@ -133,7 +134,7 @@ function registration(label: string, owner: `0x${string}`, extra: any = {}) {
 async function deployProxied<ContractName extends keyof ContractAbis>(
   name: ContractName,
   constructorArgs: ConstructorArgs<ContractName>,
-  initializeArgs?: unknown[],
+  initializeArgs?: InitializeArgs<ContractName>,
 ) {
   proxied[name] = {
     ...(await deployBehindProxy(
