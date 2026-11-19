@@ -20,7 +20,8 @@ interface ISubnameHook {
 /// @dev INVARIANT (ERC721Enumerable): enumeration (`totalSupply`,
 ///      `tokenByIndex`, `balanceOf`, `tokenOfOwnerByIndex`) is maintained on
 ///      transfer/mint/burn, NOT on expiry — a name is only burned when it is
-///      re-registered after its grace period or its unregistration. So enumeration includes
+///      re-registered after its grace period or its unregistration.
+///      So enumeration includes
 ///      expired-but-unburned names and can disagree with the grace-period
 ///      `ownerOf` (which reverts once expired). Readers MUST filter by
 ///      `nameExpires(id) > block.timestamp` to get the live set.
@@ -159,7 +160,9 @@ contract BaseRegistrarImplementation is
         if (bytes(labelOf[id]).length == 0) {
             labelOf[id] = label;
         }
-        disputeUntil[id] = disputePeriod == 0 ? 0 : block.timestamp + disputePeriod;
+        disputeUntil[id] = disputePeriod == 0
+            ? 0
+            : block.timestamp + disputePeriod;
         return _register(id, owner, duration);
     }
 
@@ -228,8 +231,12 @@ contract BaseRegistrarImplementation is
         return expiries[id];
     }
 
-    function unregister(uint256 id, uint256 until) external live onlyController {
-        if (disputeUntil[id] != until) revert DisputeUntilMismatch(until, disputeUntil[id]);
+    function unregister(
+        uint256 id,
+        uint256 until
+    ) external live onlyController {
+        if (disputeUntil[id] != until)
+            revert DisputeUntilMismatch(until, disputeUntil[id]);
         if (block.timestamp >= disputeUntil[id]) revert DisputePeriodOver(id);
         delete disputeUntil[id];
         expiries[id] = 0;

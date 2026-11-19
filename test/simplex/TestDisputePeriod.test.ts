@@ -21,6 +21,7 @@ import {
   Reason,
   registration,
   signRegistration,
+  TLD,
   YEAR,
   YEAR_PRICE_USD,
 } from './fixtures/namesV2.js'
@@ -455,6 +456,19 @@ describe('dispute period', () => {
       await unregister(f, 'afterfreeze', afterFreeze)
       for (const label of ['nodefault', 'afterfreeze'])
         expect(await f.baseRegistrar.read.nameExpires([id(label)])).toBe(0n)
+    })
+
+    it('is refused while the registrar does not own the TLD node', async () => {
+      const f = await load()
+      const until = await sponsored(f, 'notlive')
+      await f.ens.write.setSubnodeOwner([zeroHash, labelhash(TLD), carol.address], {
+        account: owner,
+      })
+      await f.ens.write.setApprovalForAll([f.baseRegistrar.address, true], {
+        account: carol,
+      })
+      await expect(unregister(f, 'notlive', until)).toBeRevertedWithoutReason()
+      expect(await f.baseRegistrar.read.nameExpires([id('notlive')])).not.toBe(0n)
     })
 
     it('is made on the registrar by a registrar controller only', async () => {
