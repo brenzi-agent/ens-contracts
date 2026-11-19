@@ -152,13 +152,16 @@ export async function deployBehindProxy<
   }
 }
 
-export type StorageVariable = {
+export type StorageMember = {
   label: string
   slot: bigint
   offset: number
+  numberOfBytes: bigint
   type: string
-  members: StorageVariable[]
+  members: StorageMember[]
 }
+
+export type StorageVariable = StorageMember & { contract: string }
 
 export async function storageLayout(
   artifacts: ArtifactManager,
@@ -171,18 +174,31 @@ export async function storageLayout(
   const { output } = JSON.parse(await readFile(outputPath!, 'utf8'))
   const { storage, types } =
     output.contracts[artifact.inputSourceName!][contractName].storageLayout
-  const enumDefinitions = (node: any): any[] =>
-    node?.nodeType === 'EnumDefinition'
+  const definitions = (node: any, nodeType: string): any[] =>
+    node?.nodeType === nodeType
       ? [node]
       : typeof node === 'object' && node !== null
-        ? Object.values(node).flatMap(enumDefinitions)
+        ? Object.values(node).flatMap((child) => definitions(child, nodeType))
         : []
   const enumValues = new Map(
-    enumDefinitions(output.sources).map((definition) => [
+    definitions(output.sources, 'EnumDefinition').map((definition) => [
       definition.canonicalName,
       definition.members.map((member: any) => member.name).join(','),
     ]),
   )
+  const declaringContracts = new Map<number, string>(
+    definitions(output.sources, 'ContractDefinition').flatMap((definition) =>
+      definition.nodes
+        .filter((node: any) => node.nodeType === 'VariableDeclaration')
+        .map((node: any) => [node.id, definition.name]),
+    ),
+  )
+  const declaringContract = (astId: number) => {
+    const name = declaringContracts.get(astId)
+    if (name === undefined)
+      throw new Error(`${contractName}: no contract declares variable ${astId}`)
+    return name
+  }
   const typeLabel = (type: string): string =>
     types[type].label.replace(
       /enum ([\w.]+)/g,
@@ -195,14 +211,20 @@ export async function storageLayout(
     if (base) return membersOf(base)
     return []
   }
-  const variable = (entry: any): StorageVariable => ({
+  const member = (entry: any): StorageMember => ({
     label: entry.label,
     slot: BigInt(entry.slot),
     offset: entry.offset,
+    numberOfBytes: BigInt(types[entry.type].numberOfBytes),
     type: typeLabel(entry.type),
-    members: membersOf(entry.type).map(variable),
+    members: membersOf(entry.type).map(member),
   })
-  return storage.map(variable)
+  return storage.map(
+    (entry: any): StorageVariable => ({
+      ...member(entry),
+      contract: declaringContract(entry.astId),
+    }),
+  )
 }
 
 /**

@@ -54,13 +54,16 @@ flowchart LR
   `ProxyAdmin` stays the only upgrade path.
 - An implementation must not write the ERC-1967 slots.
 - `test/simplex/__snapshots__/storageLayouts.json` records the storage layout
-  of the six implementations, and `test/simplex/TestUpgradeableStack.test.ts`
-  compares the compiled layouts with it and checks the six ABIs for the
-  selectors above. An upgrade that changes a layout updates the snapshot in the
-  same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`), and
-  its diff follows invariants 1 and 2: the lines of new variables are inserted
-  before the trailing `__gap`, or appended in a contract without one; values
-  are appended to the list of an enum; the start slot of the `__gap` line is
+  of the six implementations: one line per variable,
+  `slot:offset+bytes Contract.label type` with its declaring contract, and
+  below it one indented line per struct member, `slot:offset+bytes label
+  type`. `test/simplex/TestUpgradeableStack.test.ts` compares the compiled
+  layouts with it and checks the six ABIs for the selectors above. An upgrade
+  that changes a layout updates the snapshot in the same commit
+  (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`), and its diff
+  follows invariants 1 and 2: the lines of new variables are inserted before
+  the trailing `__gap`, or appended in a contract without one; values are
+  appended to the list of an enum; the start slot of the `__gap` line is
   raised, and its length reduced, by the whole slots occupied by the new
   variables; every other line is unchanged.
 
