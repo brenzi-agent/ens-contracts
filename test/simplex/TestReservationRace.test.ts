@@ -1,9 +1,10 @@
 import hre from 'hardhat'
-import { encodeFunctionData, labelhash, zeroAddress, zeroHash } from 'viem'
+import { labelhash, zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
   AMPLE_ALLOWANCE,
+  deployBehindProxy,
   deployNamePolicy,
   deployNamesV2,
   MIN_REGISTRATION,
@@ -31,11 +32,12 @@ async function fixture() {
     owner: owner.address,
     beneficiary: guardian.address,
   })
-  const impl = await connection.viem.deployContract('SimplexController', [])
-  const initData = encodeFunctionData({
-    abi: impl.abi,
-    functionName: 'initialize',
-    args: [
+  const { contract: controller } = await deployBehindProxy(
+    connection,
+    'SimplexController',
+    [],
+    owner.address,
+    [
       f.baseRegistrar.address,
       f.priceOracle.address,
       MIN_COMMITMENT_AGE,
@@ -50,14 +52,6 @@ async function fixture() {
       },
       owner.address,
     ],
-  })
-  const proxy = await connection.viem.deployContract('SimplexControllerProxy', [
-    impl.address,
-    initData,
-  ])
-  const controller = await connection.viem.getContractAt(
-    'SimplexController',
-    proxy.address,
   )
   await f.baseRegistrar.write.addController([controller.address])
   await controller.write.setBeneficiary([guardian.address], { account: owner })
