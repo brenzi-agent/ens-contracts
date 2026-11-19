@@ -1,5 +1,5 @@
 import hre from 'hardhat'
-import { encodeFunctionData, parseEther, zeroAddress } from 'viem'
+import { parseEther, zeroAddress } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import { deployNamesV2 } from './fixtures/namesV2.js'
