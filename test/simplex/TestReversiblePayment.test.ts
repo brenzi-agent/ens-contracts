@@ -509,6 +509,46 @@ describe('reversible payments', () => {
       }
     })
 
+    it('checks the horizon at the paid expiry of a renewal that extends the first term', async () => {
+      const f = await load()
+      await f.namePolicy.write.addCommunityNames([['community']], {
+        account: guardian,
+      })
+      const reg = registration('community', alice.address)
+      await f.namePolicy.write.commitUnderCommunityTerms(
+        [await f.controller.read.makeCommitment([reg]), COMMUNITY_TERMS],
+        { account: alice },
+      )
+      await f.sponsor.write.registerWithCredit(
+        await signRegistration(connection, f.sponsor, reg),
+        { account: registrar },
+      )
+      const previous = await expires(f, 'community')
+      await mineAt(previous - 60n * DAY)
+      const at = previous - 60n * DAY + 1000n
+      const horizon = await f.controller.read.MAX_REGISTRATION_DURATION()
+      const over = at + horizon - previous + 1n
+      const within = at + 1n + horizon - previous
+      const signed: Awaited<ReturnType<typeof signRenewal>>[] = []
+      for (const duration of [over, within]) {
+        await f.namePolicy.write.acceptCommunityTermsForRenewal(
+          [id('community'), previous, duration, COMMUNITY_TERMS],
+          { account: alice },
+        )
+        signed.push(
+          await signRenewal(connection, f.sponsor, 'community', duration, alice.address, DAYS),
+        )
+      }
+      await exactly(at)
+      await expect(
+        f.sponsor.write.renewWithCredit(signed[0], { account: registrar, ...EXACT }),
+      ).toBeRevertedWithCustomErrorFrom(f.controller, 'DurationTooLong')
+      await exactly(at + 1n)
+      await f.sponsor.write.renewWithCredit(signed[1], { account: registrar, ...EXACT })
+      expect(await expires(f, 'community')).toBe(at + 1n + DAYS * DAY + WINDOW)
+      expect((await payment(f, 'community'))[1]).toBe(at + 1n + horizon)
+    })
+
     it('binds the reversible days, the holder, the label and the duration in RenewName', async () => {
       const f = await load()
       expect(await f.sponsor.read.RENEW_TYPEHASH()).toBe(
@@ -625,6 +665,27 @@ describe('reversible payments', () => {
       await acceptRenewal(f, 'reversedrenew', bob)
       await payRenewal(f, 'reversedrenew', bob)
       expect(await expires(f, 'reversedrenew')).toBe(r.E + YEAR)
+    })
+
+    it('replaces the entry of a reversed renewal by a reversible renewal that keeps the expiry', async () => {
+      const f = await load()
+      const first = await register(f, 'replaced', { days: 0n })
+      await renew(f, 'replaced')
+      await reverse(f, ['replaced'])
+      const second = await renew(f, 'replaced')
+      expect(await expires(f, 'replaced')).toBe(first.paid)
+      expect(await payment(f, 'replaced')).toEqual([
+        second.until,
+        first.paid + YEAR,
+        false,
+        true,
+      ])
+      await expect(reinstate(f, ['replaced']))
+        .toEmitEvent('NamePaymentReinstatementSkipped')
+        .withArgs({ label: 'replaced' })
+      await mineAt(second.until)
+      await settle(f, 'replaced')
+      expect(await expires(f, 'replaced')).toBe(first.paid + YEAR)
     })
 
     it('reinstates the deferred term of a reversed renewal until the expiry changes', async () => {
