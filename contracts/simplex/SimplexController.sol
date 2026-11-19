@@ -49,6 +49,8 @@ contract SimplexController is
     uint256 public constant MIN_RENEWAL_DURATION = 365 days;
     uint256 public constant MAX_REGISTRATION_DURATION = MAX_REGISTRATION;
     uint256 public constant MAX_SPONSORED_REGISTRATION_DURATION = MAX_SPONSORED_REGISTRATION;
+    uint256 public constant MIN_DISPUTE_DAYS = 14;
+    uint256 public constant MAX_DISPUTE_DAYS = 120;
 
     // Manual reentrancy guard (see `_reentrancyStatus` + `nonReentrant`).
     // Implemented by hand rather than inheriting ReentrancyGuardUpgradeable so
@@ -128,6 +130,7 @@ contract SimplexController is
     error PublicSalesClosed();
     error OwnerMustBeCaller();
     error NotSponsor();
+    error DisputeDaysOutOfRange(uint256 disputeDays);
 
     event NameRegistered(
         string label,
@@ -465,7 +468,7 @@ contract SimplexController is
         uint256 totalPrice = price.base + price.premium;
         if (msg.value < totalPrice) revert InsufficientValue();
 
-        _registerCore(registration, labelhash, price);
+        _registerCore(registration, labelhash, price, 0);
 
         if (msg.value > totalPrice) {
             (bool ok, ) = payable(msg.sender).call{value: msg.value - totalPrice}("");
@@ -477,11 +480,14 @@ contract SimplexController is
     ///         The fee would have gone to the controller and been withdrawn back
     ///         to the same treasury, so it is removed rather than performed.
     function registerSponsored(
-        Registration calldata registration
+        Registration calldata registration,
+        uint256 disputeDays
     ) external onlySponsor nonReentrant {
         bytes32 labelhash = keccak256(bytes(registration.label));
         if (registration.duration > _sponsoredHorizon(labelhash))
             revert DurationTooLong(registration.duration);
+        if (disputeDays < MIN_DISPUTE_DAYS || disputeDays > MAX_DISPUTE_DAYS)
+            revert DisputeDaysOutOfRange(disputeDays);
         _checkSimplexGates(registration.label, false);
 
         // Zero cost in the event, and no `_rentPrice` call: nothing is paid on
@@ -489,7 +495,7 @@ contract SimplexController is
         // and reading it would couple the sponsored flow to the ETH/USD feed,
         // which is the one dependency this path exists without. What was
         // actually consumed is in the sponsor's `RegistrarAllowanceSpent`, in attoUSD.
-        _registerCore(registration, labelhash, IPriceOracle.Price(0, 0));
+        _registerCore(registration, labelhash, IPriceOracle.Price(0, 0), disputeDays * 1 days);
     }
 
     /// @dev Everything both registration paths share: availability, the
@@ -497,7 +503,8 @@ contract SimplexController is
     function _registerCore(
         Registration calldata registration,
         bytes32 labelhash,
-        IPriceOracle.Price memory price
+        IPriceOracle.Price memory price,
+        uint256 disputePeriod
     ) private returns (uint256 expires) {
         if (!_available(registration.label, labelhash))
             revert NameNotAvailable(registration.label);
@@ -541,13 +548,15 @@ contract SimplexController is
             expires = base.registerWithLabel(
                 registration.label,
                 registration.owner,
-                registration.duration
+                registration.duration,
+                disputePeriod
             );
         } else {
             expires = base.registerWithLabel(
                 registration.label,
                 address(this),
-                registration.duration
+                registration.duration,
+                disputePeriod
             );
 
             ens.setRecord(
@@ -634,6 +643,12 @@ contract SimplexController is
         if (expires > block.timestamp + horizon) revert DurationTooLong(duration);
 
         emit NameRenewed(label, labelhash, cost, expires, referrer);
+    }
+
+    function unregister(string calldata label) external onlyOwnerOrBeneficiary {
+        bytes32 labelhash = keccak256(bytes(label));
+        base.unregister(uint256(labelhash));
+        _retireStaleRecords(keccak256(abi.encodePacked(tldNode, labelhash)));
     }
 
     /// @notice Pays the beneficiary, never `owner()`, so revenue is independent of

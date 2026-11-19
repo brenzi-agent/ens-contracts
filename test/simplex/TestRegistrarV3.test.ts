@@ -47,7 +47,7 @@ const registerLabel = (
   baseRegistrar: any,
   label: string,
   owner: `0x${string}`,
-) => baseRegistrar.write.registerWithLabel([label, owner, DURATION])
+) => baseRegistrar.write.registerWithLabel([label, owner, DURATION, 0n])
 
 describe('BaseRegistrarImplementation v3', () => {
   describe('label index', () => {
@@ -184,7 +184,7 @@ describe('BaseRegistrarImplementation v3', () => {
       const { baseRegistrar } = await loadFixture()
       await expect(
         baseRegistrar.write.registerWithLabel(
-          ['alice', otherAccount.address, DURATION],
+          ['alice', otherAccount.address, DURATION, 0n],
           { account: otherAccount },
         ),
       ).rejects.toThrow()
