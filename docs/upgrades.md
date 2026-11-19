@@ -152,7 +152,8 @@ reordering them swaps the two lists; treat the struct as append-only too.
    upgrade. The immutables of `SimplexResolver` (`ens`; `nameWrapper`, the
    subname registrar; `trustedETHController`, the controller;
    `trustedReverseRegistrar`) and of `SubnameRegistrar` (`ens`,
-   `baseRegistrar`, `_deployer`) determine who may write records.
+   `baseRegistrar`) determine who may write records; `SubnameRegistrar`'s
+   `_deployer` is the only caller of its one-time `setResolver`.
    `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract compares
    the runtime code of a candidate with its artifact, with the current
    immutables in place.
