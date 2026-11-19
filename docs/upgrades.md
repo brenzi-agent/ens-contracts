@@ -49,7 +49,10 @@ flowchart LR
   of the six implementations, and `test/simplex/TestUpgradeableStack.test.ts`
   compares the compiled layouts with it and checks the six ABIs for the
   selectors above. An upgrade that changes a layout updates the snapshot in the
-  same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`).
+  same commit (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`). Its
+  diff adds lines for new variables after every existing one and, where the
+  contract has a `__gap`, moves the `__gap` line by the slots they take and
+  shortens it by as many; any other difference breaks the layout.
 
 ## Storage model
 
@@ -131,7 +134,11 @@ reordering them swaps the two lists; treat the struct as append-only too.
    immediately *before* `__gap`, and `__gap`'s size is decremented by the number
    of 32-byte slots it consumes (one slot for a `mapping`, `address`, `bool`,
    `uintN`, `bytes32`; more for larger structs). Net slot count is unchanged.
-   In a contract without `__gap`, it is declared after the last variable.
+   In a contract without `__gap`, it is declared after the last variable. Only
+   the most derived contract gains variables: one added to a base contract,
+   such as `PublicResolver` or one of its profiles, `ERC721`,
+   `ERC721Enumerable` or `Ownable` in a merge from upstream ENS, moves every
+   variable declared after it.
 2. **Never reorder, remove, retype, or rename-with-different-type** an existing
    state variable. Renaming with the identical type is fine (layout is by
    position+type, not name); changing the type or order corrupts every slot
