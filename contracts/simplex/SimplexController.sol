@@ -301,9 +301,8 @@ contract SimplexController is
         emit NftGateDisabled();
     }
 
-    /// @notice Swap the active price oracle. The
-    ///         Chainlink feed is immutable inside the oracle, so a retired feed
-    ///         would otherwise end registration and renewal permanently.
+    /// @notice Swap the active price oracle: the only repair of an oracle
+    ///         whose code is defective.
     function setPriceOracle(IPriceOracleUSD newOracle) external onlyOwner {
         if (address(newOracle) == address(0)) revert ZeroAddress();
         prices = newOracle;
