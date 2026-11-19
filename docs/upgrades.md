@@ -213,15 +213,15 @@ it is moved and `__gap` is untouched.
       `multicall` to `address(this)` is executed by the proxy's code with the
       same `msg.sender` and reverts `ProxyDeniedAdminAccess`, an error discarded
       by `require(success)`.
-- [ ] **Guard the function passed as `data`.** In `ENSRegistry`,
-      `BaseRegistrarImplementation` and `SimplexController` it is a
-      `reinitializer(n)`. `SimplexNamePolicy`, `SubnameRegistrar` and
-      `SimplexResolver` lack `Initializable`, which invariant 3 keeps out:
-      there it reverts unless `msg.sender` is the proxy's `ProxyAdmin`. The new
-      implementation receives that address, the CREATE address of the proxy at
-      nonce 1, as a constructor argument and keeps it in an immutable;
-      `scripts/prepare-upgrade.mjs` refuses code that reads the ERC-1967 admin
-      slot.
+- [ ] **Guard the function passed as `data`.** In each of the six contracts it
+      reverts unless `msg.sender` equals the immutable `_proxyAdmin`, the
+      proxy's `ProxyAdmin` (its CREATE address at nonce 1), passed to the new
+      implementation as a constructor argument. In `ENSRegistry`,
+      `BaseRegistrarImplementation` and `SimplexController` it is also a
+      `reinitializer(n)`. `scripts/prepare-upgrade.mjs` encodes the `data`,
+      passes the `ProxyAdmin` to the constructor, checks `_proxyAdmin` against
+      the proxy's `ProxyAdmin`, refuses code that contains an ERC-1967 slot,
+      and simulates the upgrade.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
@@ -234,7 +234,8 @@ The name policy (reserved names, community names, terms links, acceptances) sits
 behind its own `TransparentUpgradeableProxy`. Its immutable `controller()` and
 `registrar()` bind it to one controller and one registrar;
 `scripts/prepare-upgrade.mjs` refuses a candidate whose `controller()` or
-`registrar()` differs from the current one. Its own variables are
+`registrar()` differs from the current one, unless its `INTENDED` input names
+that immutable for an intended change. Its own variables are
 `_names` (each name's community flag and reservation reason, in one slot),
 `communityTermsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`,
 `communityTermsLink`, `generalTermsLink`, `generalTermsHash`, then
