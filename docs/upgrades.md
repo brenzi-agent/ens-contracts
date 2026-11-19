@@ -35,7 +35,7 @@ delegated to them and applied to the contract's own ownership.
 
 ```mermaid
 flowchart LR
-  Owner[ProxyAdmin owner] -->|upgradeAndCall, renounceOwnership| PA[ProxyAdmin]
+  Owner[ProxyAdmin owner] -->|upgradeAndCall, renounceOwnership, transferOwnership| PA[ProxyAdmin]
   PA -->|upgradeToAndCall| P[TransparentUpgradeableProxy]
   Caller[every other caller, the ProxyAdmin owner included] -->|any call| P
   P -.->|delegatecall| I[implementation]
@@ -193,10 +193,12 @@ it is moved and `__gap` is untouched.
       `receive`, and prints the calldata of `ProxyAdmin.upgradeAndCall`. Update
       `test/simplex/__snapshots__/storageLayouts.json` in the same commit and
       review its diff.
-- [ ] **Run an upgrade test of the contract being upgraded:** deploy its
-      deployed version behind a `TransparentUpgradeableProxy`, write every
-      stored variable, upgrade through the `ProxyAdmin` with the intended
-      `data`, and assert every value and the guard of the `data` function.
+- [ ] **Run an upgrade test of the contract being upgraded.** Copy the source
+      of its deployed version, from the tag of that deployment, to
+      `contracts/test/upgrades/` under another contract name; deploy the copy
+      behind a `TransparentUpgradeableProxy`, write every stored variable,
+      upgrade through the `ProxyAdmin` with the intended `data`, and assert
+      every value and the guard of the `data` function.
 - [ ] **Run `test/simplex/TestControllerStorageLayout.test.ts`.** It reads raw
       slots from a deployed proxy and asserts the packing and the reserved slots
       directly.
@@ -229,10 +231,12 @@ it is moved and `__gap` is untouched.
       proxy's `ProxyAdmin` (its CREATE address at nonce 1), passed to the new
       implementation as a constructor argument. In `ENSRegistry`,
       `BaseRegistrarImplementation` and `SimplexController` it is also a
-      `reinitializer(n)`. `scripts/prepare-upgrade.mjs` encodes the `data`,
-      passes the `ProxyAdmin` to the constructor, checks `_proxyAdmin` against
-      the proxy's `ProxyAdmin`, refuses code that contains an ERC-1967 slot,
-      and simulates the upgrade.
+      `reinitializer(n)`. `scripts/prepare-upgrade.mjs` passes the proxy's
+      `ProxyAdmin` automatically to a constructor input named `_proxyAdmin`,
+      checks the immutable `_proxyAdmin` against that `ProxyAdmin`, refuses a
+      non-empty `data` for a candidate without a `_proxyAdmin` immutable,
+      refuses code that contains an ERC-1967 slot, encodes the `data`, and
+      simulates the upgrade.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
