@@ -169,9 +169,6 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract compares
    the runtime code of a candidate with its artifact, with the current
    immutables in place.
-
-### Adding a variable — example
-
 5. **Every external function and event of the current implementation is kept**
    by a candidate, with the same selector and meaning, unless removing one is
    the purpose of the upgrade and the `INTENDED` input of
@@ -203,6 +200,9 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
 | `SimplexResolver` | `UniversalResolver` | `supportsInterface` and the resolver functions requested through it |
 | `SimplexNamePolicy` | `SimplexController` | `controller`, `isReserved`, `communityNames`, `consumeRegistration` |
 | `SimplexNamePolicy` | `BaseRegistrarImplementation` | `registrar`, `consumeTransfer` |
+
+### Adding a variable — example
+
 ```solidity
    address public namePolicy;          // last existing variable, slot 169
 +  address public somethingNew;        // slot 170, one whole slot
