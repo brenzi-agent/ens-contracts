@@ -196,6 +196,7 @@ describe('dispute period', () => {
         ['brandname', bob.address, MIN_REGISTRATION],
         { account: owner },
       )
+      expect(await f.baseRegistrar.read.disputeUntil([id('brandname')])).toBe(0n)
       for (const label of ['paidineth', 'brandname'])
         await expect(unregister(f, label)).toBeRevertedWithCustomErrorFrom(
           f.baseRegistrar,
