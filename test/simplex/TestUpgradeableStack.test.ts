@@ -133,10 +133,10 @@ const stack = (f: Fixture) => [
       ]),
     callByAdmin: async () => {
       await f.ens.write.setSubnodeOwner(
-        [namehash('eth'), labelhash('data'), admin.address],
+        [zeroHash, labelhash('eth'), admin.address],
         { account: admin },
       )
-      return f.ens.read.owner([namehash('data.eth')])
+      return f.ens.read.owner([namehash('eth')])
     },
     calledByAdmin: getAddress(admin.address),
   },
@@ -631,14 +631,10 @@ describe('upgradeable stack', () => {
       }
     })
 
-    it('an owner call sent through each proxy by the admin Safe succeeds', async () => {
+    it('an owner or holder call sent through each proxy by the admin Safe succeeds', async () => {
       const f = await load()
       await f.baseRegistrar.write.transferOwnership([admin.address])
-      await f.ens.write.setSubnodeOwner([
-        zeroHash,
-        labelhash('eth'),
-        admin.address,
-      ])
+      await f.ens.write.setOwner([zeroHash, admin.address])
       for (const p of stack(f)) {
         expect(await p.callByAdmin(), p.name).toEqual(p.calledByAdmin)
       }
