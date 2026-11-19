@@ -81,10 +81,7 @@ contract BaseRegistrarImplementation is
             isApprovedForAll(owner, spender));
     }
 
-    constructor(
-        ENS _ens,
-        bytes32 _baseNode
-    ) ERC721("SimpleX Names", "SIMPLEX") {
+    constructor(ENS _ens, bytes32 _baseNode) ERC721("", "") {
         ens = _ens;
         baseNode = _baseNode;
         _disableInitializers();
