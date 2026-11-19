@@ -38,8 +38,9 @@ flowchart LR
 - The addresses of the implementation and of the admin are stored at the
   ERC-1967 slots, `keccak256("eip1967.proxy.implementation") - 1` and
   `keccak256("eip1967.proxy.admin") - 1`, outside the sequential layout.
-- A call from the `ProxyAdmin` reaches only `upgradeToAndCall`. Every other
-  call is delegated to the implementation.
+- A call from the `ProxyAdmin` reaches only `upgradeToAndCall`; any other
+  function it calls reverts `ProxyDeniedAdminAccess`. A call from any other
+  address is delegated to the implementation.
 - An implementation must not declare `upgradeTo(address)`,
   `upgradeToAndCall(address,bytes)` or `proxiableUUID()`, so that the
   `ProxyAdmin` stays the only upgrade path.
@@ -192,7 +193,12 @@ Same slot count, same slot size. `__gap` is untouched.
       `ProxyAdmin.upgradeAndCall`. The registry's root owner and the
       registrar's `ens`, `baseNode` and owner, written by their constructors,
       reach a proxy only because `initialize` writes them again at deployment.
-      `constant` and `immutable` values are exempt (invariant 4).
+      `constant` and `immutable` values are exempt (invariant 4). The function
+      passed as `data` runs with the `ProxyAdmin` as `msg.sender`: an
+      `onlyOwner` function reverts there, a function that records its caller
+      records the `ProxyAdmin`, and `SimplexResolver.multicall` reverts
+      `ProxyDeniedAdminAccess`, since each of its `delegatecall`s to
+      `address(this)` runs the proxy's code with the same `msg.sender`.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.

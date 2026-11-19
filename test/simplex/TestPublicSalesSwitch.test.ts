@@ -103,7 +103,7 @@ describe('public sales switch', () => {
     })
   })
 
-  it('is two-way before the freeze', async () => {
+  it('is two-way', async () => {
     const { controller } = await load()
     await controller.write.setPublicSalesOpen([true], { account: owner })
     expect(await controller.read.publicSalesOpen()).toBe(true)

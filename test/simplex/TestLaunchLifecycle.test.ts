@@ -126,26 +126,34 @@ function registration(label: string, owner: `0x${string}`, extra: any = {}) {
   }
 }
 
+async function deployProxied(
+  name: string,
+  constructorArgs: unknown[],
+  initializeArgs?: unknown[],
+) {
+  proxied[name] = {
+    ...(await deployBehindProxy(
+      connection,
+      name,
+      constructorArgs,
+      admin.address,
+      initializeArgs,
+    )),
+    constructorArgs,
+  }
+  return proxied[name].contract
+}
+
 describe('launch lifecycle', () => {
   describe('1. deployment — the deploy key owns everything, the admin every ProxyAdmin', () => {
     beforeAll(async () => {
       const viem = connection.viem
-      proxied.ENSRegistry = await deployBehindProxy(
-        connection,
-        'ENSRegistry',
-        [],
-        admin.address,
-        [deployKey.address],
-      )
-      ens = proxied.ENSRegistry.contract
-      proxied.BaseRegistrarImplementation = await deployBehindProxy(
-        connection,
+      ens = await deployProxied('ENSRegistry', [], [deployKey.address])
+      baseRegistrar = await deployProxied(
         'BaseRegistrarImplementation',
         [ens.address, TLD_NODE],
-        admin.address,
         [ens.address, TLD_NODE, deployKey.address],
       )
-      baseRegistrar = proxied.BaseRegistrarImplementation.contract
       dummyOracle = await viem.deployContract('DummyOracle', [100000000n])
       priceOracle = await viem.deployContract('SimplexPriceOracle', [
         dummyOracle.address,
@@ -155,11 +163,9 @@ describe('launch lifecycle', () => {
       ])
       renderer = await viem.deployContract('MetadataRenderer', [`.${TLD}`])
 
-      proxied.SimplexController = await deployBehindProxy(
-        connection,
+      controller = await deployProxied(
         'SimplexController',
         [],
-        admin.address,
         [
           baseRegistrar.address,
           priceOracle.address,
@@ -176,36 +182,23 @@ describe('launch lifecycle', () => {
           deployKey.address,
         ],
       )
-      controller = proxied.SimplexController.contract
 
-      proxied.SubnameRegistrar = await deployBehindProxy(
-        connection,
-        'SubnameRegistrar',
-        [ens.address, baseRegistrar.address],
-        admin.address,
-      )
-      subnameRegistrar = proxied.SubnameRegistrar.contract
-      proxied.SimplexResolver = await deployBehindProxy(
-        connection,
-        'SimplexResolver',
-        [
-          ens.address,
-          subnameRegistrar.address,
-          controller.address,
-          zeroAddress,
-        ],
-        admin.address,
-      )
-      resolver = proxied.SimplexResolver.contract
+      subnameRegistrar = await deployProxied('SubnameRegistrar', [
+        ens.address,
+        baseRegistrar.address,
+      ])
+      resolver = await deployProxied('SimplexResolver', [
+        ens.address,
+        subnameRegistrar.address,
+        controller.address,
+        zeroAddress,
+      ])
       await subnameRegistrar.write.setResolver([resolver.address])
       sponsor = await viem.deployContract('SimplexSponsor', [controller.address])
-      proxied.SimplexNamePolicy = await deployBehindProxy(
-        connection,
-        'SimplexNamePolicy',
-        [controller.address, baseRegistrar.address],
-        admin.address,
-      )
-      namePolicy = proxied.SimplexNamePolicy.contract
+      namePolicy = await deployProxied('SimplexNamePolicy', [
+        controller.address,
+        baseRegistrar.address,
+      ])
     })
 
     it('gives the TLD to the registrar from the root', async () => {
@@ -289,6 +282,17 @@ describe('launch lifecycle', () => {
       )
     })
 
+    it('sets the beneficiary in the wiring, while it is still unset', async () => {
+      await controller.write.setBeneficiary([guardian.address])
+      expect((await controller.read.beneficiary()).toLowerCase()).toBe(
+        guardian.address.toLowerCase(),
+      )
+      // the owner has spent its one chance
+      await expect(
+        controller.write.setBeneficiary([bob.address], { account: deployKey }),
+      ).toBeRevertedWithCustomError('NotBeneficiary')
+    })
+
     it('reads the six proxies back', async () => {
       for (const [
         name,
@@ -322,6 +326,9 @@ describe('launch lifecycle', () => {
       expect(await baseRegistrar.read.baseNode()).toBe(TLD_NODE)
       expect(await controller.read.ens()).toBe(getAddress(ens.address))
       expect(await controller.read.tldNode()).toBe(TLD_NODE)
+      expect(await controller.read.beneficiary()).toBe(
+        getAddress(guardian.address),
+      )
       expect(await subnameRegistrar.read.ens()).toBe(getAddress(ens.address))
       expect(await subnameRegistrar.read.baseRegistrar()).toBe(
         getAddress(baseRegistrar.address),
@@ -343,7 +350,6 @@ describe('launch lifecycle', () => {
       expect(await ens.read.owner([zeroHash])).toBe(
         getAddress(deployKey.address),
       )
-      expect(BigInt(await controller.read.beneficiary())).toBe(0n)
     })
   })
 
@@ -387,17 +393,6 @@ describe('launch lifecycle', () => {
   })
 
   describe('3. the governance handover', () => {
-    it('sets the beneficiary first, while it is still unset', async () => {
-      await controller.write.setBeneficiary([guardian.address])
-      expect((await controller.read.beneficiary()).toLowerCase()).toBe(
-        guardian.address.toLowerCase(),
-      )
-      // the owner has spent its one chance
-      await expect(
-        controller.write.setBeneficiary([bob.address], { account: deployKey }),
-      ).toBeRevertedWithCustomError('NotBeneficiary')
-    })
-
     it('hands over the registrar, the registry nodes and the root', async () => {
       await baseRegistrar.write.transferOwnership([admin.address])
       await ens.write.setOwner([namehash('eth-usd.data.eth'), zeroAddress])
@@ -1127,11 +1122,12 @@ describe('launch lifecycle', () => {
     it('the implementations are permanent', async () => {
       for (const [
         name,
-        { contract, implementation, proxyAdmin },
+        { contract, implementation, proxyAdmin, constructorArgs },
       ] of Object.entries(proxied)) {
+        const next = await connection.viem.deployContract(name, constructorArgs)
         await expect(
           proxyAdmin.write.upgradeAndCall(
-            [contract.address, implementation.address, '0x'],
+            [contract.address, next.address, '0x'],
             { account: admin },
           ),
           name,

@@ -146,6 +146,23 @@ export async function storageLayout(
   const { output } = JSON.parse(await readFile(outputPath!, 'utf8'))
   const { storage, types } =
     output.contracts[artifact.inputSourceName!][contractName].storageLayout
+  const enumDefinitions = (node: any): any[] =>
+    node?.nodeType === 'EnumDefinition'
+      ? [node]
+      : typeof node === 'object' && node !== null
+        ? Object.values(node).flatMap(enumDefinitions)
+        : []
+  const enumValues = new Map(
+    enumDefinitions(output.sources).map((definition) => [
+      definition.canonicalName,
+      definition.members.map((member: any) => member.name).join(','),
+    ]),
+  )
+  const typeLabel = (type: string): string =>
+    types[type].label.replace(
+      /enum ([\w.]+)/g,
+      (label: string, name: string) => `${label} {${enumValues.get(name)}}`,
+    )
   const membersOf = (type: string): any[] => {
     const { members, value, base } = types[type]
     if (members) return members
@@ -157,7 +174,7 @@ export async function storageLayout(
     label: entry.label,
     slot: BigInt(entry.slot),
     offset: entry.offset,
-    type: types[entry.type].label,
+    type: typeLabel(entry.type),
     members: membersOf(entry.type).map(variable),
   })
   return storage.map(variable)

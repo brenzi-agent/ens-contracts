@@ -101,7 +101,7 @@
   "SimplexNamePolicy": [
     "0:0 _names mapping(bytes32 => struct SimplexNamePolicy.NameEntry)",
     "  0:0 community bool",
-    "  0:1 reserved enum SimplexNamePolicy.Reason",
+    "  0:1 reserved enum SimplexNamePolicy.Reason {None,Internal,Trademark,Community}",
     "1:0 communityTermsHash bytes32",
     "2:0 acceptedTerms mapping(bytes32 => mapping(address => bytes32))",
     "3:0 acceptedClaimTerms mapping(uint256 => mapping(address => mapping(address => mapping(uint256 => bytes32))))",
