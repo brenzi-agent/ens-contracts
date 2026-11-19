@@ -7,6 +7,7 @@ import {
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
+  NOT_REVERSIBLE,
   registerWithCredit,
   registration,
   sponsorOf,
@@ -67,7 +68,7 @@ describe('the sponsored path does not depend on the price feed', () => {
     await acceptGeneralTermsForRenewal(connection, controller, 'deadfeed', YEAR, {
       account: alice,
     })
-    await sponsor.write.renewWithCredit(['deadfeed', YEAR, zeroHash, alice.address], {
+    await sponsor.write.renewWithCredit(['deadfeed', YEAR, zeroHash, alice.address, ...NOT_REVERSIBLE], {
       account: registrar,
     })
     expect(await baseRegistrar.read.nameExpires([tokenId])).toBe(before + YEAR)
@@ -126,7 +127,7 @@ describe('the sponsored path does not depend on the price feed', () => {
       account: alice,
     })
     const hash = await sponsor.write.renewWithCredit(
-      ['renewevent', YEAR, zeroHash, alice.address],
+      ['renewevent', YEAR, zeroHash, alice.address, ...NOT_REVERSIBLE],
       { account: registrar },
     )
     const receipt = await publicClient.getTransactionReceipt({ hash })

@@ -22,7 +22,11 @@ contract SimplexSponsor {
     bytes32 private constant _EIP712_VERSION = keccak256("1");
     bytes32 public constant REGISTER_TYPEHASH =
         keccak256(
-            "RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 nonce,uint256 deadline)"
+            "RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 reversibleDays,uint256 nonce,uint256 deadline)"
+        );
+    bytes32 public constant RENEW_TYPEHASH =
+        keccak256(
+            "RenewName(string label,address holder,uint256 duration,uint256 reversibleDays,uint256 nonce,uint256 deadline)"
         );
 
     SimplexController public immutable controller;
@@ -68,22 +72,23 @@ contract SimplexSponsor {
     /// @notice Register with no value attached, spending the name's list price
     ///         from the caller's allowance.
     /// @param sig The owner's EIP-712 `RegisterName` signature, which covers the
-    ///        label, the duration, the resolver and `data`, not the secret or referrer.
+    ///        label, the duration, the resolver, `data` and `reversibleDays`, not the secret or referrer.
     ///        Not checked when the owner is the caller.
     function registerWithCredit(
         IETHRegistrarController.Registration calldata registration,
+        uint256 reversibleDays,
         uint256 nonce,
         uint256 deadline,
         bytes calldata sig
     ) external {
         if (registration.owner != msg.sender)
-            _consumeIntent(registration, nonce, deadline, sig);
+            _consumeIntent(registration, reversibleDays, nonce, deadline, sig);
         IPriceOracle.Price memory usd = controller.rentPriceUSD(
             registration.label,
             registration.duration
         );
         _spendAllowance(usd.base + usd.premium);
-        controller.registerSponsored(registration);
+        controller.registerSponsored(registration, reversibleDays);
     }
 
     /// @notice Renew with no value attached, spending the name's list price
@@ -92,13 +97,35 @@ contract SimplexSponsor {
         string calldata label,
         uint256 duration,
         bytes32 referrer,
-        address holder
+        address holder,
+        uint256 reversibleDays,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata sig
     ) external {
+        if (reversibleDays != 0 && holder != msg.sender)
+            _verify(
+                holder,
+                keccak256(
+                    abi.encode(
+                        RENEW_TYPEHASH,
+                        keccak256(bytes(label)),
+                        holder,
+                        duration,
+                        reversibleDays,
+                        nonce,
+                        deadline
+                    )
+                ),
+                nonce,
+                deadline,
+                sig
+            );
         // Base only, matching the payable `renew`, which charges `price.base`.
         // The premium is the expired-name auction price and is owed on
         // re-registration, never on renewing a name you already hold.
         _spendAllowance(controller.rentPriceUSD(label, duration).base);
-        controller.renewSponsored(label, duration, referrer, holder);
+        controller.renewSponsored(label, duration, referrer, holder, reversibleDays);
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
@@ -132,39 +159,52 @@ contract SimplexSponsor {
     /// @dev Verify the owner's signature, then spend the nonce.
     function _consumeIntent(
         IETHRegistrarController.Registration calldata registration,
+        uint256 reversibleDays,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata sig
+    ) private {
+        // EIP-712 encodes `bytes[]` as the hash of its elements' hashes.
+        bytes32[] memory dataHashes = new bytes32[](registration.data.length);
+        for (uint256 i = 0; i < dataHashes.length; ++i)
+            dataHashes[i] = keccak256(registration.data[i]);
+        _verify(
+            registration.owner,
+            keccak256(
+                abi.encode(
+                    REGISTER_TYPEHASH,
+                    keccak256(bytes(registration.label)),
+                    registration.owner,
+                    registration.duration,
+                    registration.resolver,
+                    keccak256(abi.encodePacked(dataHashes)),
+                    reversibleDays,
+                    nonce,
+                    deadline
+                )
+            ),
+            nonce,
+            deadline,
+            sig
+        );
+    }
+
+    function _verify(
+        address signer,
+        bytes32 structHash,
         uint256 nonce,
         uint256 deadline,
         bytes calldata sig
     ) private {
         if (block.timestamp > deadline) revert SignatureExpired();
-        address owner = registration.owner;
-        if (nonce != nonces[owner]) revert InvalidNonce();
-        // EIP-712 encodes `bytes[]` as the hash of its elements' hashes.
-        bytes32[] memory dataHashes = new bytes32[](registration.data.length);
-        for (uint256 i = 0; i < dataHashes.length; ++i)
-            dataHashes[i] = keccak256(registration.data[i]);
+        if (nonce != nonces[signer]) revert InvalidNonce();
         bytes32 digest = keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                DOMAIN_SEPARATOR(),
-                keccak256(
-                    abi.encode(
-                        REGISTER_TYPEHASH,
-                        keccak256(bytes(registration.label)),
-                        owner,
-                        registration.duration,
-                        registration.resolver,
-                        keccak256(abi.encodePacked(dataHashes)),
-                        nonce,
-                        deadline
-                    )
-                )
-            )
+            abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash)
         );
-        if (!SignatureChecker.isValidSignatureNow(owner, digest, sig))
+        if (!SignatureChecker.isValidSignatureNow(signer, digest, sig))
             revert InvalidSignature();
         unchecked {
-            nonces[owner] = nonce + 1;
+            nonces[signer] = nonce + 1;
         }
     }
 }

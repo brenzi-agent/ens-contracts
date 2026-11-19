@@ -9,6 +9,7 @@ import {
   deployNamesV2,
   MIN_REGISTRATION,
   node,
+  NOT_REVERSIBLE,
   registerWithCredit,
   registration,
   sponsorOf,
@@ -236,7 +237,7 @@ describe('renewal and availability semantics', () => {
     await acceptGeneralTermsForRenewal(connection, controller, 'renewprem', YEAR, {
       account: victim,
     })
-    await sponsor.write.renewWithCredit(['renewprem', YEAR, zeroHash, victim.address], {
+    await sponsor.write.renewWithCredit(['renewprem', YEAR, zeroHash, victim.address, ...NOT_REVERSIBLE], {
       account: registrar,
     })
     const spent =

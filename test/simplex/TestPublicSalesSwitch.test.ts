@@ -8,6 +8,7 @@ import {
   commitUnderGeneralTerms,
   deployNamesV2,
   MIN_REGISTRATION,
+  NOT_REVERSIBLE,
   registerWithCredit,
   registration,
   sponsorOf,
@@ -105,7 +106,7 @@ describe('public sales switch', () => {
       value: YEAR_PRICE_USD,
     })
     await accept()
-    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash, alice.address], {
+    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash, alice.address, ...NOT_REVERSIBLE], {
       account: registrar,
     })
   })

@@ -21,6 +21,7 @@ import {
   GENERAL_TERMS,
   GENERAL_TERMS_LINK,
   MIN_REGISTRATION,
+  NOT_REVERSIBLE,
   registration,
   signIntent,
   signRegistration,
@@ -265,7 +266,7 @@ const signRenewalAcceptance = async (
   )
 
 const renewOnCredit = (sponsor: any, holder: `0x${string}`, k: Kind = COMMUNITY) =>
-  sponsor.write.renewWithCredit([k.label, YEAR, zeroHash, holder], {
+  sponsor.write.renewWithCredit([k.label, YEAR, zeroHash, holder, ...NOT_REVERSIBLE], {
     account: registrar,
   })
 
@@ -383,10 +384,10 @@ describe('community names', () => {
     })
 
     it('both setters revert for a contract bound to another controller or registrar', async () => {
-      const { controller, baseRegistrar, implementation } = await load()
+      const { controller, baseRegistrar, implementation, settlement } = await load()
       const boundElsewhere = await connection.viem.deployContract(
         'SimplexNamePolicy',
-        [implementation.address, mallory.address],
+        [implementation.address, mallory.address, settlement.address],
       )
       await expect(
         controller.write.setNamePolicy([boundElsewhere.address], {
@@ -1038,7 +1039,7 @@ describe('community names', () => {
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')
       await expect(
         f.sponsor.write.renewWithCredit(
-          [GENERAL.label, 2n * YEAR, zeroHash, alice.address],
+          [GENERAL.label, 2n * YEAR, zeroHash, alice.address, ...NOT_REVERSIBLE],
           { account: registrar },
         ),
       ).toBeRevertedWithCustomErrorFrom(f.namePolicy, 'TermsNotAccepted')

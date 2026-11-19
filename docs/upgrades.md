@@ -1,7 +1,7 @@
 # SimplexController upgrade & storage-layout invariants
 
 `SimplexController` is upgradeable (ERC-1967 UUPS proxy; `_authorizeUpgrade`
-is `onlyOwner`), and so is `SimplexNamePolicy` (see the last section). A UUPS
+is `onlyOwner`), and so are `SimplexNamePolicy` and `SimplexSettlement` (see the last sections). A UUPS
 upgrade swaps the implementation behind a proxy whose storage persists — so the
 new implementation **must keep the exact storage layout** of the old one, only
 appending. Get this wrong and existing values (prices, the sponsor, …) silently
@@ -133,7 +133,7 @@ The name policy (reserved names, community names, terms links, acceptances) sits
 behind `SimplexNamePolicyProxy` (ERC-1967, UUPS). `_authorizeUpgrade` requires
 the controller's `owner()`, reverts `Frozen` once the controller is frozen, and
 reverts `ImplementationMismatch` unless the new implementation's immutable
-`controller()` and `registrar()` equal the current ones. Its own variables are
+`controller()`, `registrar()` and `settlement()` equal the current ones. Its own variables are
 `_names` (each name's community flag and reservation reason, in one slot),
 `communityTermsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`,
 `communityTermsLink`, `generalTermsLink`, `generalTermsHash`,
@@ -148,3 +148,29 @@ upgrade as well.
 It has no initializer. An implementation that adds one must run it through
 `upgradeToAndCall`, in the upgrade transaction itself, or anyone can call it
 first.
+
+The controller's `setNamePolicy` refuses a policy whose `settlement()` differs
+from the current policy's, so every policy the controller takes names the same
+settlement.
+
+## `SimplexSettlement`
+
+The entries of reversible payments are stored in `SimplexSettlement`, behind
+`SimplexSettlementProxy` (ERC-1967, UUPS). `_authorizeUpgrade` requires the
+controller's `owner()`, reverts `Frozen` once the controller is frozen, and
+reverts `ImplementationMismatch` unless the new implementation's immutable
+`controller()` and `registrar()` equal the current ones. Its own variables are
+`_entries`, then `uint256[49] __gap`; the invariants above apply to it
+unchanged. The members of `Entry` (`reversibleUntil`, `firstExpiry`,
+`remaining`, `reversed`, `renewal`) share one slot in declaration order, so the
+struct is append-only too. Like the policy, it has no initializer.
+
+The settlement compiles in `MAX_REVERSIBLE_DAYS`, `SETTLEMENT_WINDOW` and the
+registrar's 90-day grace period. Two relations with the controller's constants
+are checked by tests, so that part of the term of every reversible registration
+and renewal is added at settlement:
+
+- `MAX_REVERSIBLE_DAYS days + SETTLEMENT_WINDOW < MIN_REGISTRATION`;
+- `MAX_REVERSIBLE_DAYS days + SETTLEMENT_WINDOW + 90 days < MIN_RENEWAL_DURATION`.
+
+A change of either side needs a check of both.
