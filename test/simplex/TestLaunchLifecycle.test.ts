@@ -1,3 +1,7 @@
+import type {
+  ConstructorArgs,
+  ContractAbis,
+} from '@nomicfoundation/hardhat-viem/types'
 import hre from 'hardhat'
 import {
   encodeFunctionData,
@@ -126,9 +130,9 @@ function registration(label: string, owner: `0x${string}`, extra: any = {}) {
   }
 }
 
-async function deployProxied(
-  name: string,
-  constructorArgs: unknown[],
+async function deployProxied<ContractName extends keyof ContractAbis>(
+  name: ContractName,
+  constructorArgs: ConstructorArgs<ContractName>,
   initializeArgs?: unknown[],
 ) {
   proxied[name] = {
@@ -139,7 +143,8 @@ async function deployProxied(
       admin.address,
       initializeArgs,
     )),
-    constructorArgs,
+    deployImplementation: () =>
+      connection.viem.deployContract(name, constructorArgs),
   }
   return proxied[name].contract
 }
@@ -1132,9 +1137,9 @@ describe('launch lifecycle', () => {
     it('the implementations are permanent', async () => {
       for (const [
         name,
-        { contract, implementation, proxyAdmin, constructorArgs },
+        { contract, implementation, proxyAdmin, deployImplementation },
       ] of Object.entries(proxied)) {
-        const next = await connection.viem.deployContract(name, constructorArgs)
+        const next = await deployImplementation()
         await expect(
           proxyAdmin.write.upgradeAndCall(
             [contract.address, next.address, '0x'],

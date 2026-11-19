@@ -1,4 +1,7 @@
-import type { ConstructorArgs } from '@nomicfoundation/hardhat-viem/types'
+import type {
+  ConstructorArgs,
+  ContractAbis,
+} from '@nomicfoundation/hardhat-viem/types'
 import type { ArtifactManager } from 'hardhat/types/artifacts'
 import type { NetworkConnection } from 'hardhat/types/network'
 import { readFile } from 'node:fs/promises'
@@ -95,7 +98,9 @@ export async function proxyAdminOf(
   )
 }
 
-export async function deployBehindProxy<ContractName extends string>(
+export async function deployBehindProxy<
+  ContractName extends keyof ContractAbis,
+>(
   connection: NetworkConnection,
   contractName: ContractName,
   constructorArgs: ConstructorArgs<ContractName>,
