@@ -25,7 +25,7 @@ jobs:
 
       - name: Contract sizes
         run: |
-          for c in simplex/SimplexController simplex/SimplexNamePolicy simplex/SimplexSponsor ethregistrar/BaseRegistrarImplementation; do
+          for c in simplex/SimplexController simplex/SimplexNamePolicy simplex/SimplexSponsor simplex/SimplexSettlement ethregistrar/BaseRegistrarImplementation; do
             node -e 'const a=require(process.argv[1]); console.log(process.argv[2], (a.deployedBytecode.length-2)/2)' "./artifacts/contracts/$c.sol/$(basename $c).json" "$(basename $c)"
           done
 
