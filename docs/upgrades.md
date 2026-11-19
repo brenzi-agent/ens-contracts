@@ -10,6 +10,9 @@ Each of these contracts is deployed behind its own OpenZeppelin 5.1.0
 - `SimplexController`
 - `SimplexNamePolicy`
 
+The `.testing` controller, a UUPS proxy, is upgraded under `docs/upgrades.md`
+at tag `simplex-mainnet-testing-v3`, the source of its fixes.
+
 Each proxy creates its own `ProxyAdmin` in its constructor; the address of the
 `ProxyAdmin` is an immutable of the proxy. The owner of the `ProxyAdmin`
 upgrades the proxy with
