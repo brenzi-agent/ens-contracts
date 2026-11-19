@@ -100,15 +100,22 @@ export async function proxyAdminOf(
   )
 }
 
-export type InitializeArgs<ContractName extends keyof ContractAbis> =
-  ContractFunctionArgs<
-    ContractAbis[ContractName],
-    'nonpayable',
-    Extract<
-      ContractFunctionName<ContractAbis[ContractName], 'nonpayable'>,
-      'initialize'
-    >
-  >
+type Initialize<ContractName extends keyof ContractAbis> = Extract<
+  ContractFunctionName<ContractAbis[ContractName], 'nonpayable'>,
+  'initialize'
+>
+
+export type InitializeParameters<ContractName extends keyof ContractAbis> = [
+  Initialize<ContractName>,
+] extends [never]
+  ? []
+  : [
+      initializeArgs: ContractFunctionArgs<
+        ContractAbis[ContractName],
+        'nonpayable',
+        Initialize<ContractName>
+      >,
+    ]
 
 export async function deployBehindProxy<
   ContractName extends keyof ContractAbis,
@@ -117,8 +124,9 @@ export async function deployBehindProxy<
   contractName: ContractName,
   constructorArgs: ConstructorArgs<ContractName>,
   initialOwner: `0x${string}`,
-  initializeArgs?: NoInfer<InitializeArgs<ContractName>>,
+  ...initialize: NoInfer<InitializeParameters<ContractName>>
 ) {
+  const [initializeArgs] = initialize as [] | [readonly unknown[]]
   const implementation = await connection.viem.deployContract(
     contractName,
     constructorArgs,
@@ -132,7 +140,7 @@ export async function deployBehindProxy<
         ? encodeFunctionData({
             abi: implementation.abi as Abi,
             functionName: 'initialize',
-            args: initializeArgs as readonly unknown[],
+            args: initializeArgs,
           })
         : '0x',
     ],
