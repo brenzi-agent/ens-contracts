@@ -221,7 +221,7 @@ describe('name policy', () => {
       expect(await slot(7)).toBe(GENERAL_TERMS)
     })
 
-    it('renewal acceptances take slot 109 of the proxy', async () => {
+    it('renewal acceptances take slot 8 of the proxy', async () => {
       const { namePolicy } = await load()
       const id = BigInt(labelhash('heldname'))
       await namePolicy.write.acceptGeneralTermsForRenewal(
@@ -234,7 +234,7 @@ describe('name policy', () => {
         pad(toHex(YEAR)),
         entry(
           pad(toHex(0)),
-          entry(pad(alice.address), entry(pad(toHex(id)), pad(toHex(109)))),
+          entry(pad(alice.address), entry(pad(toHex(id)), pad(toHex(8)))),
         ),
       )
       expect(
