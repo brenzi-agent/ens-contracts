@@ -55,15 +55,15 @@ flowchart LR
   `upgradeToAndCall(address,bytes)` or `proxiableUUID()`, so that the
   `ProxyAdmin` stays the only upgrade path.
 - An implementation must not write the ERC-1967 slots.
-- `test/simplex/__snapshots__/storageLayouts.json` records the storage layout
-  of the eight implementations: one line per variable,
+- The storage layouts of the eight implementations are recorded in
+  `test/simplex/__snapshots__/storageLayouts.json`: one line per variable,
   `slot:offset+bytes Contract.label type` with its declaring contract, and
   below it one indented line per struct member, `slot:offset+bytes label
-  type`. `test/simplex/TestUpgradeableStack.test.ts` compares the compiled
-  layouts with it and checks the eight ABIs for the selectors above. An upgrade
-  that changes a layout updates the snapshot in the same commit
-  (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`), and its diff
-  follows invariants 1 and 2: the lines of new variables are inserted before
+  type`. In `test/simplex/TestUpgradeableStack.test.ts`, the compiled layouts
+  are compared with it and the eight ABIs are checked for the selectors above.
+  With an upgrade that changes a layout, the snapshot is regenerated in CI by
+  `vitest run -u test/simplex/TestUpgradeableStack.test.ts` and committed with
+  it, and its diff follows invariants 1 and 2: the lines of new variables are inserted before
   the trailing `__gap`, or appended in a contract without one; values are
   appended to the list of an enum; the start slot of the `__gap` line is
   raised, and its length reduced, by the whole slots occupied by the new
@@ -162,8 +162,8 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    contract with storage — either moves storage. `Initializable` is kept at
    `@openzeppelin/contracts-upgradeable` 4.9.3 in `ENSRegistry`,
    `BaseRegistrarImplementation` and `SimplexController`: its `_initialized`
-   (in the registrar, slot 10, offset 20) is the state that refuses a second
-   `initialize`, and the state of the 5.x `Initializable` is read from an
+   (in the registrar, slot 10, offset 20) is the state by which a second
+   `initialize` is reverted, and the state of the 5.x `Initializable` is read from an
    ERC-7201 slot, which is zero in an existing proxy.
 4. `constant` / `immutable` values are compiled into the implementation, not
    stored in the proxy, so an upgrade replaces them. A new implementation keeps
@@ -173,19 +173,19 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    `trustedReverseRegistrar`) and of `SubnameRegistrar` (`ens`,
    `baseRegistrar`) determine who may write records; `SubnameRegistrar`'s
    `_deployer` is the only caller of its one-time `setResolver`.
-   `SimplexSponsor`'s `controller` binds it to one controller, and
-   `UniversalResolver`'s `registry`, `batchGatewayProvider` and
-   `unsafeCallGas` set the registry it reads and its batch gateways.
-   `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract compares
-   the runtime code of a candidate with its artifact, with the current
+   `SimplexSponsor` is bound to one controller by its `controller`, and the
+   registry and the batch gateways of `UniversalResolver` are fixed by its
+   `registry`, `batchGatewayProvider` and `unsafeCallGas`. By
+   `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract, the
+   runtime code of a candidate is compared with its artifact, with the current
    immutables in place.
 5. **Every external function and event of the current implementation is kept**
    by a candidate, with the same selector and meaning, unless removing one is
    the purpose of the upgrade and the `INTENDED` input of
-   `scripts/prepare-upgrade.mjs` names it; the script refuses a candidate that
-   drops a selector or an event topic that `INTENDED` does not name. The other
-   contracts of the stack call the functions below, so once a caller is frozen
-   or immutable, these functions are a fixed interface.
+   `scripts/prepare-upgrade.mjs` names it; a candidate that drops a selector or
+   an event topic that `INTENDED` does not name is refused by the script. The
+   functions below are called by other contracts of the stack, so once a
+   caller is frozen or immutable, these functions are a fixed interface.
 
 ### Calls between the contracts of the stack
 
@@ -212,9 +212,9 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
 | `SimplexNamePolicy` | `BaseRegistrarImplementation` | `registrar`, `consumeTransfer` |
 
 `SimplexSponsor` and `UniversalResolver` are called only from outside the
-stack. `SimplexController` accepts `registerSponsored` and `renewSponsored`
-only from the address in its `sponsor`, the sponsor's proxy, which an upgrade
-of the sponsor leaves unchanged.
+stack. `registerSponsored` and `renewSponsored` of `SimplexController` revert
+for any caller other than the address in its `sponsor`, the sponsor's proxy,
+which is unchanged by an upgrade of the sponsor.
 
 ### Adding a variable — example
 
@@ -232,18 +232,22 @@ it is moved and `__gap` is untouched.
 
 ## Pre-upgrade checklist
 
-- [ ] **Validate the storage layout against the deployed implementation.**
-      `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract
-      compares the layouts, refuses the UUPS selectors, a `fallback` and a
-      `receive`, and prints the calldata of `ProxyAdmin.upgradeAndCall`. Update
-      `test/simplex/__snapshots__/storageLayouts.json` in the same commit and
-      review its diff.
+- [ ] **Validate the storage layout against the deployed implementation.** By
+      `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract, the
+      layouts are compared with the deployed layout recorded in
+      `verification.mainnet.simplex.json`, the UUPS selectors, a `fallback` and
+      a `receive` are refused, and the calldata of `ProxyAdmin.upgradeAndCall`
+      is printed. Update `test/simplex/__snapshots__/storageLayouts.json` in the
+      same commit and review its diff.
 - [ ] **Run an upgrade test of the contract being upgraded.** Copy the source
-      of its deployed version, from the tag of that deployment, to
+      file of its deployed version, from the tag of that deployment, to
       `contracts/test/upgrades/` under another contract name; deploy the copy
       behind a `TransparentUpgradeableProxy`, write every stored variable,
       upgrade through the `ProxyAdmin` with the intended `data`, and assert
-      every value and the guard of the `data` function.
+      every value and the guard of the `data` function. The copy is compiled
+      with the base contracts of the current tree, so the `data` function and
+      the values it writes are checked by the test, and the layout against the
+      deployed implementation by `scripts/prepare-upgrade.mjs`.
 - [ ] **Run `test/simplex/TestControllerStorageLayout.test.ts`.** It reads raw
       slots from a deployed proxy and asserts the packing and the reserved slots
       directly.
@@ -258,8 +262,8 @@ it is moved and `__gap` is untouched.
       `baseNode` and owner, written by their constructors, reach a proxy only
       because `initialize` writes them again at deployment. The constructors of
       `ENSRegistry`, `BaseRegistrarImplementation` and `SimplexController`
-      keep `_disableInitializers()`, and `scripts/prepare-upgrade.mjs` refuses
-      a candidate whose `_initialized` is not 255. `constant` and `immutable`
+      keep `_disableInitializers()`, and a candidate whose `_initialized` is not
+      255 is refused by `scripts/prepare-upgrade.mjs`. `constant` and `immutable`
       values are exempt (invariant 4). The function passed as `data` runs with
       the `ProxyAdmin` as `msg.sender`: an
       `onlyOwner` function reverts there, a function that records its caller
@@ -280,34 +284,41 @@ it is moved and `__gap` is untouched.
       implementation as the constructor input `proxyAdmin`; an input named
       `_proxyAdmin` would shadow the immutable and leave it zero. In
       `ENSRegistry`, `BaseRegistrarImplementation` and `SimplexController` it is
-      also a `reinitializer(n)`. `scripts/prepare-upgrade.mjs` passes the
-      proxy's `ProxyAdmin` automatically to a constructor input named
-      `proxyAdmin`, checks the immutable `_proxyAdmin` against that
-      `ProxyAdmin`, refuses a non-empty `data` for a candidate without a
-      `_proxyAdmin` immutable, refuses code that contains an ERC-1967 slot,
-      encodes the `data`, and simulates the upgrade. Outside
-      `reinitializer(n)`, the guard admits the function again in any later
-      `upgradeAndCall` of the same proxy, so it is safe to run twice; a later
-      candidate drops it only through `INTENDED` (invariant 5).
+      also a `reinitializer(n)`. By `scripts/prepare-upgrade.mjs`, the proxy's
+      `ProxyAdmin` is passed automatically to a constructor input named
+      `proxyAdmin`, the immutable `_proxyAdmin` is checked against that
+      `ProxyAdmin`, a non-empty `data` for a candidate without a `_proxyAdmin`
+      immutable and code that contains an ERC-1967 slot are refused, the `data`
+      is encoded, and the upgrade is simulated. Outside `reinitializer(n)`, the
+      function passes the guard again in any later `upgradeAndCall` of the same
+      proxy, so it is safe to run twice; it is dropped from a later candidate
+      only through `INTENDED` (invariant 5).
 - [ ] **Order upgrades whose interfaces change together.** An upgrade whose
       new code calls a function that another contract of the stack gains in
       its own upgrade is sent after that upgrade, or with it in one Safe
-      MultiSend batch; `scripts/prepare-upgrade.mjs` simulates one
-      `upgradeAndCall` at a time.
+      MultiSend batch; one `upgradeAndCall` at a time is simulated by
+      `scripts/prepare-upgrade.mjs`. An upgrade that drops, through
+      `INTENDED`, a function that the current code of another contract of the
+      stack calls is sent after that contract's upgrade, or with it in one Safe
+      MultiSend batch. A changed signature is a dropped and a gained function
+      at once, so the upgrades of the contract and of its callers are sent in
+      one batch, simulated on a mainnet fork before it is proposed. A function
+      that the names service or the dApp calls is dropped only after they call
+      its successor.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
-      before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
-      refuses every upgrade.
+      before the upgrade tx. Every upgrade through a renounced `ProxyAdmin`,
+      whose owner is `0x0`, reverts.
 - [ ] Bump the `__gap` size in the same commit as any new state variable, so the
       two never drift.
 
 ## `SimplexNamePolicy`
 
 The name policy (reserved names, community names, terms links, acceptances) sits
-behind its own `TransparentUpgradeableProxy`. Its immutable `controller()` and
-`registrar()` bind it to one controller and one registrar;
-`scripts/prepare-upgrade.mjs` refuses a candidate whose `controller()` or
-`registrar()` differs from the current one, unless its `INTENDED` input names
-that immutable for an intended change. Its own variables are
+behind its own `TransparentUpgradeableProxy`. It is bound to one controller and
+one registrar by its immutables `controller()` and `registrar()`; a candidate
+whose `controller()` or `registrar()` differs from the current one is refused
+by `scripts/prepare-upgrade.mjs`, unless its `INTENDED` input names that
+immutable for an intended change. Its own variables are
 `_names` (each name's community flag and reservation reason, in one slot),
 `communityTermsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`,
 `communityTermsLink`, `generalTermsLink`, `generalTermsHash`, then

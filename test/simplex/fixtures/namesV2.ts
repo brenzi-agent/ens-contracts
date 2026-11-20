@@ -202,7 +202,12 @@ export async function storageLayout(
   const typeLabel = (type: string): string =>
     types[type].label.replace(
       /enum ([\w.]+)/g,
-      (label: string, name: string) => `${label} {${enumValues.get(name)}}`,
+      (label: string, name: string) => {
+        const values = enumValues.get(name)
+        if (values === undefined)
+          throw new Error(`${contractName}: no definition of enum ${name}`)
+        return `${label} {${values}}`
+      },
     )
   const membersOf = (type: string): any[] => {
     const { members, value, base } = types[type]
