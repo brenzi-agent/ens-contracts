@@ -2,7 +2,7 @@ name: SimpleX tests
 
 on:
   push:
-    branches: [simplex]
+    branches: [simplex, 'ci/**']
   pull_request:
     branches: [simplex]
 
