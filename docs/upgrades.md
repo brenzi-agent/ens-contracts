@@ -83,7 +83,7 @@ start:
 | `SimplexController` | 0-150: `Initializable`, `ContextUpgradeable`, `OwnableUpgradeable`, `Ownable2StepUpgradeable` | 151 | `uint256[43]` |
 | `SimplexNamePolicy` | – | 0 | `uint256[42]` |
 | `SimplexSponsor` | – | 0 | – |
-| `UniversalResolver` | – | – (no storage) | – |
+| `UniversalResolver` | – | – (immutables only) | – |
 
 Each of the eight is the most derived contract behind its proxy, so a contract
 without `__gap` appends after its last variable.
@@ -94,10 +94,10 @@ contract SimplexController is
 ```
 
 Slots 0 to 150 are taken by the OZ upgradeable parents and are left alone: slot
-0 by `Initializable`, which has no `__gap`, and slots 1 to 150 by
-`ContextUpgradeable`, `OwnableUpgradeable` and `Ownable2StepUpgradeable`, each
-with its own `__gap`. This contract's own variables start at slot 151. After
-them come
+0 by `Initializable`, whose `_initialized` and `_initializing` are its only
+variables, and slots 1 to 150 by `ContextUpgradeable`, `OwnableUpgradeable` and
+`Ownable2StepUpgradeable`, each with its own `__gap`. This contract's own
+variables start at slot 151. After them come
 `ens`, `base`, `minCommitmentAge`, `maxCommitmentAge`, two reserved slots
 (below), `prices`, `tldNode`, `tldSuffix`, `commitments`, `minCharLength`,
 `_unusedReservedNames`, `smpxNft` + `nftGateEnabled` + `_unusedPriceOracleFrozen`
@@ -211,10 +211,10 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
 | `SimplexNamePolicy` | `SimplexController` | `controller`, `isReserved`, `communityNames`, `consumeRegistration` |
 | `SimplexNamePolicy` | `BaseRegistrarImplementation` | `registrar`, `consumeTransfer` |
 
-No contract of the stack calls `SimplexSponsor` or `UniversalResolver`.
-`SimplexController` accepts `registerSponsored` and `renewSponsored` only from
-the address in its `sponsor`, the sponsor's proxy, which an upgrade of the
-sponsor leaves unchanged.
+`SimplexSponsor` and `UniversalResolver` are called only from outside the
+stack. `SimplexController` accepts `registerSponsored` and `renewSponsored`
+only from the address in its `sponsor`, the sponsor's proxy, which an upgrade
+of the sponsor leaves unchanged.
 
 ### Adding a variable — example
 
@@ -314,9 +314,10 @@ upgrade as well.
 
 The sponsor (registrar allowances and `RegisterName` nonces) sits behind its own
 `TransparentUpgradeableProxy`. Its constructor assigns only the immutable
-`controller`, and it has no initializer; the function passed as `data` is
-guarded by `_proxyAdmin` alone. Its own variables are `registrarAllowance` and
-`nonces`, without a `__gap`; the invariants above apply to it unchanged. Its
+`controller`, so its proxy is deployed with empty `data`, and a function passed
+as `data` in an upgrade is guarded by `_proxyAdmin` alone. Its own variables
+are `registrarAllowance` (slot 0) and `nonces` (slot 1), and a new one is
+appended after them (invariant 1). Its
 EIP-712 domain uses `address(this)`, the proxy, so `DOMAIN_SEPARATOR` and
 signed `RegisterName` intents are unchanged by an upgrade. A sponsor at another
 address is set with `setSponsor`, in the order of D20 of
@@ -326,7 +327,8 @@ address is set with `setSponsor`, in the order of D20 of
 
 The universal resolver sits behind its own `TransparentUpgradeableProxy`. Its
 constructor assigns only the immutables `registry`, `batchGatewayProvider` and
-`unsafeCallGas`, it has no initializer and no storage, and the function passed
-as `data` is guarded by `_proxyAdmin` alone. Its `OffchainLookup` names
+`unsafeCallGas`, so its proxy is deployed with empty `data`; its state is these
+immutables alone, and a function passed as `data` in an upgrade is guarded by
+`_proxyAdmin` alone. Its `OffchainLookup` names
 `address(this)`, the proxy, as the sender, so a client sends the CCIP-read
 callback to the proxy.
