@@ -33,7 +33,7 @@ uint256 constant MAX_SPONSORED_REGISTRATION = 4015 days;
 ///      - NFT gate (optional, for .testing TLD)
 ///
 ///      Deployed behind an ERC1967 transparent proxy. The implementation has
-///      its initializers disabled in the constructor; storage lives in
+///      its initializers disabled in the constructor; storage is kept in
 ///      the proxy and is preserved across upgrades.
 contract SimplexController is
     Initializable,
