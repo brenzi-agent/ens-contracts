@@ -155,11 +155,6 @@ contract SimplexController is
     error ReentrantCall();
     error NamePolicyMismatch();
 
-    /// @dev Manual `nonReentrant`. A freshly-zero `_reentrancyStatus` (the case
-    ///      for the already-deployed instance, whose `initialize` does not
-    ///      re-run on upgrade) reads as not-entered, so the guard is correct
-    ///      without a reinitializer; `initialize` seeds it to `_NOT_ENTERED`
-    ///      for fresh deploys to get the cheaper steady-state cost.
     modifier onlySponsor() {
         if (msg.sender != sponsor) revert NotSponsor();
         _;
@@ -645,7 +640,6 @@ contract SimplexController is
     // 49 -> 48 when `_reentrancyStatus` was added (reentrancy guard).
     uint256 private _reentrancyStatus;
 
-    // --- names v2: governance, sponsor and pricing. 48 -> 45. ---
     /// @dev Guardian key: the registrar allowance (on the sponsor), the sales switch, and `withdraw`'s payee.
     address public beneficiary;
     address public sponsor;
