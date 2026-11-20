@@ -289,6 +289,11 @@ it is moved and `__gap` is untouched.
       `reinitializer(n)`, the guard admits the function again in any later
       `upgradeAndCall` of the same proxy, so it is safe to run twice; a later
       candidate drops it only through `INTENDED` (invariant 5).
+- [ ] **Order upgrades whose interfaces change together.** An upgrade whose
+      new code calls a function that another contract of the stack gains in
+      its own upgrade is sent after that upgrade, or with it in one Safe
+      MultiSend batch; `scripts/prepare-upgrade.mjs` simulates one
+      `upgradeAndCall` at a time.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
