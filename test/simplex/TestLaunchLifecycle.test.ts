@@ -485,23 +485,7 @@ describe('launch lifecycle', () => {
     })
   })
 
-  describe('4. the guardian funds the registrar, the admin accepts', () => {
-    it('grants a $100,000 allowance, and only the guardian can', async () => {
-      await expect(
-        sponsor.write.setRegistrarAllowance([registrar.address, ALLOWANCE], {
-          account: admin,
-        }),
-      ).toBeRevertedWithCustomError('NotBeneficiary')
-
-      await sponsor.write.setRegistrarAllowance(
-        [registrar.address, ALLOWANCE],
-        { account: guardian },
-      )
-      expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
-        ALLOWANCE,
-      )
-    })
-
+  describe('4. the admin accepts, then the guardian funds the registrar', () => {
     it('the admin accepts the controller and the oracle', async () => {
       await controller.write.acceptOwnership({ account: admin })
       await priceOracle.write.acceptOwnership({ account: admin })
@@ -584,6 +568,22 @@ describe('launch lifecycle', () => {
       expect(await root.read.owner()).toBe(adminAddress)
       expect(await root.read.controllers([admin.address])).toBe(true)
       expect(await root.read.locked([labelhash(TLD)])).toBe(false)
+    })
+
+    it('grants a $100,000 allowance, and only the guardian can', async () => {
+      await expect(
+        sponsor.write.setRegistrarAllowance([registrar.address, ALLOWANCE], {
+          account: admin,
+        }),
+      ).toBeRevertedWithCustomError('NotBeneficiary')
+
+      await sponsor.write.setRegistrarAllowance(
+        [registrar.address, ALLOWANCE],
+        { account: guardian },
+      )
+      expect(await sponsor.read.registrarAllowance([registrar.address])).toBe(
+        ALLOWANCE,
+      )
     })
   })
 
