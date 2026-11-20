@@ -728,37 +728,47 @@ describe('upgradeable stack', () => {
       }
     })
 
-    it('a resolver multicall of upgradeToAndCall as upgrade data installs the nested implementation', async () => {
-      const f = await load()
-      const resolverEntry = stack(f).find((p) => p.name === 'SimplexResolver')!
-      const candidate = await resolverEntry.deployImplementation()
-      const nested = await resolverEntry.deployImplementation()
-      const proxyAdmin = await proxyAdminOf(connection, f.resolver.address)
-      await proxyAdmin.write.upgradeAndCall(
-        [
-          f.resolver.address,
-          candidate.address,
+    it('a resolver multicall or multicallWithNodeCheck of upgradeToAndCall as upgrade data installs the nested implementation', async () => {
+      for (const functionName of ['multicall', 'multicallWithNodeCheck']) {
+        const f = await load()
+        const resolverEntry = stack(f).find(
+          (p) => p.name === 'SimplexResolver',
+        )!
+        const candidate = await resolverEntry.deployImplementation()
+        const nested = await resolverEntry.deployImplementation()
+        const entries = [
           encodeFunctionData({
-            abi: f.resolver.abi,
-            functionName: 'multicall',
-            args: [
-              [
-                encodeFunctionData({
-                  abi: parseAbi([
-                    'function upgradeToAndCall(address newImplementation, bytes data)',
-                  ]),
-                  functionName: 'upgradeToAndCall',
-                  args: [nested.address, '0x'],
-                }),
-              ],
-            ],
+            abi: parseAbi([
+              'function upgradeToAndCall(address newImplementation, bytes data)',
+            ]),
+            functionName: 'upgradeToAndCall',
+            args: [nested.address, '0x'],
           }),
-        ],
-        { account: admin },
-      )
-      expect(await implementationOf(connection, f.resolver.address)).toBe(
-        getAddress(nested.address),
-      )
+        ]
+        const proxyAdmin = await proxyAdminOf(connection, f.resolver.address)
+        await proxyAdmin.write.upgradeAndCall(
+          [
+            f.resolver.address,
+            candidate.address,
+            functionName === 'multicall'
+              ? encodeFunctionData({
+                  abi: f.resolver.abi,
+                  functionName: 'multicall',
+                  args: [entries],
+                })
+              : encodeFunctionData({
+                  abi: f.resolver.abi,
+                  functionName: 'multicallWithNodeCheck',
+                  args: [zeroHash, entries],
+                }),
+          ],
+          { account: admin },
+        )
+        expect(
+          await implementationOf(connection, f.resolver.address),
+          functionName,
+        ).toBe(getAddress(nested.address))
+      }
     })
 
     it('DOMAIN_SEPARATOR reads the same after an upgrade', async () => {
