@@ -233,7 +233,7 @@ export async function storageLayout(
  * resolver's wrapper slot, the controller proxy as both trusted controller and
  * credit granter, and no reverse registrar.
  *
- * `owner` owns the controller and the six `ProxyAdmin`s. `beneficiary` is the
+ * `owner` owns the controller and the eight `ProxyAdmin`s. `beneficiary` is the
  * guardian key. `registrar` stands in for the names service hot wallet and
  * starts with no credits.
  */
@@ -324,9 +324,12 @@ export async function deployNamesV2(
     account: accounts.owner,
   })
 
-  const sponsor = await viem.deployContract('SimplexSponsor', [
-    controller.address,
-  ])
+  const { contract: sponsor } = await deployBehindProxy(
+    connection,
+    'SimplexSponsor',
+    [controller.address],
+    accounts.owner,
+  )
   await controller.write.setSponsor([sponsor.address], {
     account: accounts.owner,
   })
@@ -335,6 +338,14 @@ export async function deployNamesV2(
     connection,
     controller,
     baseRegistrar,
+    accounts.owner,
+  )
+
+  const gatewayProvider = await viem.deployContract('DummyGatewayProvider', [])
+  const { contract: universalResolver } = await deployBehindProxy(
+    connection,
+    'UniversalResolver',
+    [deployer.account.address, ens.address, gatewayProvider.address],
     accounts.owner,
   )
 
@@ -348,6 +359,8 @@ export async function deployNamesV2(
     implementation,
     resolver,
     subnameRegistrar,
+    universalResolver,
+    gatewayProvider,
     priceOracle,
     dummyOracle,
   }
