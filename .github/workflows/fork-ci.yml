@@ -45,3 +45,99 @@ jobs:
         run: pnpm exec vitest run test/ethregistrar/TestBaseRegistrar.test.ts -t '^(?!.*should permit the owner to transfer a registration)'
         env:
           NODE_OPTIONS: --disable-warning=ExperimentalWarning
+
+  typecheck-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec hardhat compile
+
+      - name: Type-check of namesV2.ts and TestUpgradeableStack.test.ts, failing on their errors only, since files they import fail on the base too
+        run: |
+          echo '{"extends":"./tsconfig.json","include":["./test/simplex/fixtures/namesV2.ts","./test/simplex/TestUpgradeableStack.test.ts","./test/setup.ts","./typings-custom/**/*.ts","./artifacts/**/*.d.ts","./artifacts/node_modules/**/*.d.ts"]}' > tsconfig.tests.json
+          pnpm exec tsc --noEmit -p tsconfig.tests.json > tsc.log 2>&1 || true
+          cat tsc.log
+          ! grep -E '_tsc\.js|^test/simplex/(fixtures/namesV2|TestUpgradeableStack\.test)\.ts\(' tsc.log
+
+  layout-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec hardhat compile
+
+      - name: Regenerated layout snapshot, for an upgrade that changes a layout
+        run: pnpm exec vitest run -u test/simplex/TestUpgradeableStack.test.ts -t 'storage layouts'
+        env:
+          NODE_OPTIONS: --disable-warning=ExperimentalWarning
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storageLayouts
+          path: test/simplex/__snapshots__/storageLayouts.json
+
+  upstream-evaluation:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        ref: ['1a11cda4be59ae46a13e194d78ffdaac1ca3b0c8', '']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.ref }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec hardhat compile
+
+      - name: Upstream suites of the changed registry and registrar
+        run: |
+          for f in test/resolvers/TestPublicResolver.test.ts test/universalResolver/TestResolverCaller.test.ts test/universalResolver/TestUniversalResolver.test.ts test/ethregistrar/TestRegistrarSecurityController.test.ts test/ethregistrar/TestExponentialPremiumPriceOracle.test.ts test/ethregistrar/TestLinearPremiumPriceOracle.test.ts; do
+            echo "=== $f"
+            pnpm exec vitest run "$f" > run.log 2>&1 || true
+            grep -E ' ✓ | × |Test Files|Tests  |Error:' run.log | sed -E 's/ [0-9]+ms$//' | head -150
+          done
+        env:
+          NODE_OPTIONS: --disable-warning=ExperimentalWarning
+
+      - uses: foundry-rs/foundry-toolchain@v1
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.3
+
+      - name: Deploy scripts
+        run: bun ./scripts/deploy-test.ts 2>&1 | tail -40 || true
