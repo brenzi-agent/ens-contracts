@@ -347,8 +347,8 @@ it is moved and `__gap` is untouched.
       at once, so the upgrades of the contract and of its callers are sent in
       one batch, simulated on a mainnet fork before it is proposed. Such a
       batch is prepared by the batch extension of `scripts/prepare-upgrade.mjs`
-      delivered with the tooling of #51 (brenzi/simplex-namespace-contract#19),
-      before #51's batch: each candidate is prepared, the Safe MultiSend is
+      delivered before the first batch upgrade, #49's: each candidate is
+      prepared, the Safe MultiSend is
       assembled and simulated on a mainnet fork with the admin Safe
       impersonated, and each implementation slot is compared with its
       candidate. The same simulation and comparison are applied to every single
