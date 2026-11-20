@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   acceptGeneralTermsForClaim,
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
@@ -295,6 +296,9 @@ describe('dispute period', () => {
           { account: bob },
         ),
       ).toBeRevertedWithoutReason()
+      await acceptGeneralTermsForRenewal(connection, f.controller, 'nomoreclaim', YEAR, {
+        account: alice,
+      })
       await expect(
         f.controller.write.renew(['nomoreclaim', YEAR, zeroHash], {
           account: alice,
@@ -378,13 +382,16 @@ describe('dispute period', () => {
             ...EXACT,
           }),
         renewcredit: () =>
-          f.sponsor.write.renewWithCredit(['renewcredit', YEAR, zeroHash], {
+          f.sponsor.write.renewWithCredit(['renewcredit', YEAR, zeroHash, alice.address], {
             account: registrar,
             ...EXACT,
           }),
       }
       for (const [label, renew] of Object.entries(paths)) {
         const until = await sponsored(f, label)
+        await acceptGeneralTermsForRenewal(connection, f.controller, label, YEAR, {
+          account: alice,
+        })
         await exactly(until - 1n)
         await expect(renew()).toBeRevertedWithCustomErrorFrom(
           f.baseRegistrar,

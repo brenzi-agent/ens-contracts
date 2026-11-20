@@ -85,7 +85,7 @@ start:
 | `SimplexResolver` | 0: `ResolverBase`; 1-11: the resolver profiles; 12-13: `PublicResolver` | 14 | – |
 | `SubnameRegistrar` | – | 0 | – |
 | `SimplexController` | 0-150: `Initializable`, `ContextUpgradeable`, `OwnableUpgradeable`, `Ownable2StepUpgradeable` | 151 | `uint256[43]` |
-| `SimplexNamePolicy` | – | 0 | `uint256[42]` |
+| `SimplexNamePolicy` | – | 0 | `uint256[41]` |
 | `SimplexSponsor` | – | 0 | – |
 | `UniversalResolver` | – | – (immutables only) | – |
 
@@ -378,8 +378,9 @@ by `scripts/prepare-upgrade.mjs`, unless its `INTENDED` input names that
 immutable for an intended change. Its own variables are
 `_names` (each name's community flag and reservation reason, in one slot),
 `communityTermsHash`, `acceptedTerms`, `acceptedClaimTerms`, `nonces`,
-`communityTermsLink`, `generalTermsLink`, `generalTermsHash`, then
-`uint256[42] __gap`; the invariants above apply to it unchanged.
+`communityTermsLink`, `generalTermsLink`, `generalTermsHash`,
+`acceptedRenewalTerms`, then `uint256[41] __gap`; the invariants above apply to
+it unchanged.
 
 The controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` and
 `MAX_SPONSORED_REGISTRATION` are compiled into the policy, and the controller's

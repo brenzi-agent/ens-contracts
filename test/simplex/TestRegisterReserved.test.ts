@@ -3,6 +3,7 @@ import { labelhash, zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
@@ -32,6 +33,11 @@ async function fixture() {
   })
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
+
+const acceptBrandnameRenewal = (controller: any) =>
+  acceptGeneralTermsForRenewal(connection, controller, 'brandname', YEAR, {
+    account: brand,
+  })
 
 const renewBrandname = (controller: any) =>
   controller.write.renew(['brandname', YEAR, zeroHash], {
@@ -111,6 +117,7 @@ describe('registerReserved', () => {
 
     const id = BigInt(labelhash('brandname'))
     const before = await baseRegistrar.read.nameExpires([id])
+    await acceptBrandnameRenewal(controller)
     await renewBrandname(controller)
     expect(await baseRegistrar.read.nameExpires([id])).toBe(before + YEAR)
   })
@@ -237,7 +244,9 @@ describe('a disputed name', () => {
       account: guardian,
     })
     await expect(
-      sponsor.write.renewWithCredit(['brandname', YEAR, zeroHash], { account: registrar }),
+      sponsor.write.renewWithCredit(['brandname', YEAR, zeroHash, brand.address], {
+        account: registrar,
+      }),
     ).toBeRevertedWithCustomErrorFrom(controller, 'NameReserved')
   })
 
@@ -246,6 +255,7 @@ describe('a disputed name', () => {
     await namePolicy.write.removeReservedNames([['brandname']], { account: owner })
     const id = BigInt(labelhash('brandname'))
     const before = await baseRegistrar.read.nameExpires([id])
+    await acceptBrandnameRenewal(controller)
     await renewBrandname(controller)
     expect(await baseRegistrar.read.nameExpires([id])).toBe(before + YEAR)
   })

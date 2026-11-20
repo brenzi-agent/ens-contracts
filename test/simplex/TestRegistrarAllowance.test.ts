@@ -3,6 +3,7 @@ import { labelhash, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
@@ -270,7 +271,10 @@ describe('registrar allowance', () => {
 
     const tokenId = BigInt(labelhash('renewable'))
     const before = await baseRegistrar.read.nameExpires([tokenId])
-    await sponsor.write.renewWithCredit(['renewable', YEAR, zeroHash], {
+    await acceptGeneralTermsForRenewal(connection, controller, 'renewable', YEAR, {
+      account: alice,
+    })
+    await sponsor.write.renewWithCredit(['renewable', YEAR, zeroHash, alice.address], {
       account: registrar,
     })
 
@@ -315,11 +319,17 @@ describe('registrar allowance', () => {
     await sponsoredRegister(controller, registration('decade', alice.address))
     await passDisputePeriod(connection)
     const longest = 9n * YEAR + MIN_DISPUTE_DAYS * DAY
-    await sponsor.write.renewWithCredit(['decade', longest, zeroHash], {
+    await acceptGeneralTermsForRenewal(connection, controller, 'decade', longest, {
+      account: alice,
+    })
+    await sponsor.write.renewWithCredit(['decade', longest, zeroHash, alice.address], {
       account: registrar,
     })
+    await acceptGeneralTermsForRenewal(connection, controller, 'decade', YEAR, {
+      account: alice,
+    })
     await expect(
-      sponsor.write.renewWithCredit(['decade', YEAR, zeroHash], {
+      sponsor.write.renewWithCredit(['decade', YEAR, zeroHash, alice.address], {
         account: registrar,
       }),
     ).toBeRevertedWithCustomErrorFrom(controller, 'DurationTooLong')
