@@ -301,8 +301,7 @@ contract SimplexController is
         emit NftGateDisabled();
     }
 
-    /// @notice Swap the active price oracle, for instance to replace one whose
-    ///         code is defective.
+    /// @notice Swap the active price oracle.
     function setPriceOracle(IPriceOracleUSD newOracle) external onlyOwner {
         if (address(newOracle) == address(0)) revert ZeroAddress();
         prices = newOracle;
@@ -647,7 +646,6 @@ contract SimplexController is
     uint256 private _reentrancyStatus;
 
     // --- names v2: governance, sponsor and pricing. 48 -> 45. ---
-    // Slot 1: beneficiary.
     /// @dev Guardian key: the registrar allowance (on the sponsor), the sales switch, and `withdraw`'s payee.
     address public beneficiary;
     address public sponsor;
