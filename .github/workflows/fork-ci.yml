@@ -45,3 +45,67 @@ jobs:
         run: pnpm exec vitest run test/ethregistrar/TestBaseRegistrar.test.ts -t '^(?!.*should permit the owner to transfer a registration)'
         env:
           NODE_OPTIONS: --disable-warning=ExperimentalWarning
+
+  layout-snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec hardhat compile
+
+      - run: pnpm exec vitest run -u test/simplex/TestUpgradeableStack.test.ts -t 'storage layouts'
+        env:
+          NODE_OPTIONS: --disable-warning=ExperimentalWarning
+
+      - name: Regenerated snapshot, base64
+        run: |
+          base64 -w0 test/simplex/__snapshots__/storageLayouts.json
+          echo
+
+  typecheck-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec hardhat compile
+
+      - name: Type-check of test/simplex
+        run: |
+          cat > test/simplex/probe.ts <<'EOF'
+          import hre from 'hardhat'
+          import { zeroAddress } from 'viem'
+          import { deployBehindProxy } from './fixtures/namesV2.js'
+          const connection = await hre.network.connect()
+          // @ts-expect-error
+          await deployBehindProxy(connection, 'ENSRegistry', [], zeroAddress)
+          // @ts-expect-error
+          await deployBehindProxy(connection, 'ENSRegistry', [], zeroAddress, [1n])
+          // @ts-expect-error
+          await deployBehindProxy(connection, 'SubnameRegistrar', [zeroAddress, zeroAddress], zeroAddress, [zeroAddress])
+          await deployBehindProxy(connection, 'ENSRegistry', [], zeroAddress, [zeroAddress])
+          await deployBehindProxy(connection, 'SubnameRegistrar', [zeroAddress, zeroAddress], zeroAddress)
+          EOF
+          echo '{"extends":"./tsconfig.json","include":["./test/simplex/**/*.ts","./test/setup.ts","./typings-custom/**/*.ts","./artifacts/**/*.d.ts","./artifacts/node_modules/**/*.d.ts"]}' > tsconfig.tests.json
+          pnpm exec tsc --noEmit -p tsconfig.tests.json || true
