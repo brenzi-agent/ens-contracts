@@ -189,12 +189,12 @@ const stack = (f: Fixture) => [
       ]),
     authorizedCall: async () => {
       await f.resolver.write.setText(
-        [namehash('eth'), KEY, 'https://smp/admin'],
-        { account: admin },
+        [node(NAME), 'simplex.channel', 'https://smp/channel'],
+        { account: alice },
       )
-      return f.resolver.read.text([namehash('eth'), KEY])
+      return f.resolver.read.text([node(NAME), 'simplex.channel'])
     },
-    authorizedResult: 'https://smp/admin',
+    authorizedResult: 'https://smp/channel',
   },
   {
     name: 'SubnameRegistrar',
