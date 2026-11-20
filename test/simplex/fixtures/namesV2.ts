@@ -233,7 +233,7 @@ export async function storageLayout(
 }
 
 /**
- * The full `.simplex` stack, wired as `deploy-simplex.mjs` will wire it:
+ * The full `.simplex` stack, wired as in `deploy-mainnet.mjs`:
  * SimplexResolver in place of PublicResolver, the SubnameRegistrar in the
  * resolver's wrapper slot, the controller proxy as both trusted controller and
  * credit granter, and no reverse registrar.
