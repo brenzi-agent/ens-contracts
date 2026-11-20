@@ -28,6 +28,8 @@ jobs:
 
       - run: pnpm exec hardhat compile
 
+      - run: pnpm exec tsc --noEmit
+
       - run: pnpm exec vitest run
         env:
           NODE_OPTIONS: --disable-warning=ExperimentalWarning
