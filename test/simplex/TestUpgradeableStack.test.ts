@@ -655,11 +655,11 @@ describe('upgradeable stack', () => {
 
     it('deployBehindProxy requires initialize arguments exactly where the ABI declares initialize', () => {
       expectTypeOf<InitializeParameters<'ENSRegistry'>>().toEqualTypeOf<
-        [readonly [`0x${string}`]]
+        [[`0x${string}`]]
       >()
       expectTypeOf<
         InitializeParameters<'BaseRegistrarImplementation'>
-      >().toEqualTypeOf<[readonly [`0x${string}`, `0x${string}`, `0x${string}`]]>()
+      >().toEqualTypeOf<[[`0x${string}`, `0x${string}`, `0x${string}`]]>()
       expectTypeOf<
         InitializeParameters<'SimplexController'>
       >().not.toEqualTypeOf<[]>()
