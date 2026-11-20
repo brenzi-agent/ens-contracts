@@ -29,11 +29,6 @@ jobs:
             node -e 'const a=require(process.argv[1]); console.log(process.argv[2], (a.deployedBytecode.length-2)/2)' "./artifacts/contracts/$c.sol/$(basename $c).json" "$(basename $c)"
           done
 
-      - run: pnpm exec vitest run test/simplex
-        env:
-          NODE_OPTIONS: --disable-warning=ExperimentalWarning
-
-      - name: Upstream registrar test, without the pushed transfer refused since recipient consent
-        run: pnpm exec vitest run test/ethregistrar/TestBaseRegistrar.test.ts -t '^(?!.*should permit the owner to transfer a registration)'
+      - run: pnpm exec vitest run
         env:
           NODE_OPTIONS: --disable-warning=ExperimentalWarning
