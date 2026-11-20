@@ -1,6 +1,8 @@
 import type { ContractAbis } from '@nomicfoundation/hardhat-viem/types'
 import hre from 'hardhat'
 import {
+  decodeFunctionResult,
+  encodeFunctionData,
   getAddress,
   labelhash,
   namehash,
@@ -10,6 +12,7 @@ import {
 } from 'viem'
 import { describe, expect, it } from 'vitest'
 
+import { dnsEncodeName } from '../fixtures/dnsEncodeName.js'
 import {
   acceptGeneralTermsForClaim,
   AMPLE_ALLOWANCE,
@@ -131,14 +134,14 @@ const stack = (f: Fixture) => [
           f.subnameRegistrar.address,
         ]),
       ]),
-    callByAdmin: async () => {
+    authorizedCall: async () => {
       await f.ens.write.setSubnodeOwner(
         [zeroHash, labelhash('eth'), admin.address],
         { account: admin },
       )
       return f.ens.read.owner([namehash('eth')])
     },
-    calledByAdmin: getAddress(admin.address),
+    authorizedResult: getAddress(admin.address),
   },
   {
     name: 'BaseRegistrarImplementation',
@@ -161,11 +164,11 @@ const stack = (f: Fixture) => [
         f.baseRegistrar.read.totalSupply(),
         f.baseRegistrar.read.tokenURI([TOKEN]),
       ]),
-    callByAdmin: async () => {
+    authorizedCall: async () => {
       await f.baseRegistrar.write.setMaxLabelLength([63n], { account: admin })
       return f.baseRegistrar.read.maxLabelLength()
     },
-    calledByAdmin: 63n,
+    authorizedResult: 63n,
   },
   {
     name: 'SimplexResolver',
@@ -183,14 +186,14 @@ const stack = (f: Fixture) => [
         f.resolver.read.recordVersions([node(NAME)]),
         f.resolver.read.relayedSigner([SUB]),
       ]),
-    callByAdmin: async () => {
+    authorizedCall: async () => {
       await f.resolver.write.setText(
         [namehash('eth'), KEY, 'https://smp/admin'],
         { account: admin },
       )
       return f.resolver.read.text([namehash('eth'), KEY])
     },
-    calledByAdmin: 'https://smp/admin',
+    authorizedResult: 'https://smp/admin',
   },
   {
     name: 'SubnameRegistrar',
@@ -209,7 +212,7 @@ const stack = (f: Fixture) => [
         f.subnameRegistrar.read.childrenLength([node(NAME)]),
         f.subnameRegistrar.read.labelOf([labelhash('work')]),
       ]),
-    callByAdmin: async () => {
+    authorizedCall: async () => {
       await f.namePolicy.write.addReservedNames(
         [['adminname'], Reason.Trademark],
         { account: admin },
@@ -228,7 +231,7 @@ const stack = (f: Fixture) => [
         BigInt(namehash(`ops.adminname.${TLD}`)),
       ])
     },
-    calledByAdmin: getAddress(admin.address),
+    authorizedResult: getAddress(admin.address),
   },
   {
     name: 'SimplexController',
@@ -250,11 +253,11 @@ const stack = (f: Fixture) => [
         f.controller.read.tldSuffix(),
         f.controller.read.wasDefaultResolver([f.resolver.address]),
       ]),
-    callByAdmin: async () => {
+    authorizedCall: async () => {
       await f.controller.write.setMinCharLength([5], { account: admin })
       return f.controller.read.minCharLength()
     },
-    calledByAdmin: 5,
+    authorizedResult: 5,
   },
   {
     name: 'SimplexNamePolicy',
@@ -275,17 +278,71 @@ const stack = (f: Fixture) => [
         f.namePolicy.read.communityTermsHash(),
         f.namePolicy.read.communityTermsLink(),
       ]),
-    callByAdmin: async () => {
+    authorizedCall: async () => {
       await f.namePolicy.write.addReservedNames(
         [['adminbrand'], Reason.Trademark],
         { account: admin },
       )
       return f.namePolicy.read.reservedNames([labelhash('adminbrand')])
     },
-    calledByAdmin: Reason.Trademark,
+    authorizedResult: Reason.Trademark,
+  },
+  {
+    name: 'SimplexSponsor',
+    contract: f.sponsor,
+    deployImplementation: () =>
+      connection.viem.deployContract('SimplexSponsor', [f.controller.address]),
+    state: () =>
+      Promise.all([
+        f.sponsor.read.controller(),
+        f.sponsor.read.registrarAllowance([registrar.address]),
+        f.sponsor.read.nonces([alice.address]),
+      ]),
+    authorizedCall: async () => {
+      await f.sponsor.write.setRegistrarAllowance(
+        [bob.address, YEAR_PRICE_USD],
+        { account: guardian },
+      )
+      return f.sponsor.read.registrarAllowance([bob.address])
+    },
+    authorizedResult: YEAR_PRICE_USD,
+  },
+  {
+    name: 'UniversalResolver',
+    contract: f.universalResolver,
+    deployImplementation: () =>
+      connection.viem.deployContract('UniversalResolver', [
+        deployer.address,
+        f.ens.address,
+        f.gatewayProvider.address,
+      ]),
+    state: () =>
+      Promise.all([
+        f.universalResolver.read.registry(),
+        f.universalResolver.read.batchGatewayProvider(),
+        resolveText(f, `${NAME}.${TLD}`, KEY),
+      ]),
+    authorizedCall: () => resolveText(f, `${NAME}.${TLD}`, KEY),
+    authorizedResult: 'https://smp/alice',
   },
 ]
 type Proxied = ReturnType<typeof stack>[number]
+
+async function resolveText(f: Fixture, name: string, key: string) {
+  const [result] = await f.universalResolver.read.resolve([
+    dnsEncodeName(name),
+    encodeFunctionData({
+      abi: f.resolver.abi,
+      functionName: 'text',
+      args: [namehash(name), key],
+    }),
+  ])
+  return decodeFunctionResult({
+    abi: f.resolver.abi,
+    functionName: 'text',
+    data: result,
+  })
+}
 
 const declares = (p: Proxied, functionName: string) =>
   p.contract.abi.some(
@@ -596,7 +653,7 @@ describe('upgradeable stack', () => {
     })
   })
 
-  describe('the six proxies', () => {
+  describe('the eight proxies', () => {
     it('upgradeAndCall by the ProxyAdmin owner succeeds; by any other caller it reverts', async () => {
       for (const p of stack(await load())) {
         for (const account of [deployer, guardian, alice]) {
@@ -631,12 +688,12 @@ describe('upgradeable stack', () => {
       }
     })
 
-    it('an owner or holder call sent through each proxy by the admin Safe succeeds', async () => {
+    it('an owner, holder, beneficiary or public call through each proxy succeeds', async () => {
       const f = await load()
       await f.baseRegistrar.write.transferOwnership([admin.address])
       await f.ens.write.setOwner([zeroHash, admin.address])
       for (const p of stack(f)) {
-        expect(await p.callByAdmin(), p.name).toEqual(p.calledByAdmin)
+        expect(await p.authorizedCall(), p.name).toEqual(p.authorizedResult)
       }
     })
 
@@ -657,6 +714,7 @@ describe('upgradeable stack', () => {
         'SimplexResolver',
         'SubnameRegistrar',
         'SimplexNamePolicy',
+        'SimplexSponsor',
       ])
       const separators = () =>
         Promise.all([
@@ -665,6 +723,7 @@ describe('upgradeable stack', () => {
           f.resolver.read.DOMAIN_SEPARATOR(),
           f.subnameRegistrar.read.DOMAIN_SEPARATOR(),
           f.namePolicy.read.DOMAIN_SEPARATOR(),
+          f.sponsor.read.DOMAIN_SEPARATOR(),
         ])
       const before = await separators()
       for (const p of proxies) {
@@ -673,7 +732,7 @@ describe('upgradeable stack', () => {
       expect(await separators()).toEqual(before)
     })
 
-    it('the ABIs of the six implementations exclude the UUPS selectors', async () => {
+    it('the ABIs of the eight implementations exclude the UUPS selectors', async () => {
       for (const p of stack(await load())) {
         const selectors = p.contract.abi
           .filter((item: any) => item.type === 'function')
@@ -685,7 +744,7 @@ describe('upgradeable stack', () => {
       }
     })
 
-    it('after renounceOwnership on one ProxyAdmin, its proxy upgrade reverts and the other five upgrade', async () => {
+    it('after renounceOwnership on one ProxyAdmin, its proxy upgrade reverts and the other seven upgrade', async () => {
       for (const { name } of stack(await load())) {
         const proxies = stack(await load())
         const frozen = proxies.find((p) => p.name === name)!
@@ -701,7 +760,7 @@ describe('upgradeable stack', () => {
       }
     }, 120000)
 
-    it('after transferOwnership on one ProxyAdmin, its proxy is upgraded by the new owner only, and the other five by the admin Safe only', async () => {
+    it('after transferOwnership on one ProxyAdmin, its proxy is upgraded by the new owner only, and the other seven by the admin Safe only', async () => {
       for (const { name } of stack(await load())) {
         const proxies = stack(await load())
         const moved = proxies.find((p) => p.name === name)!
@@ -721,7 +780,7 @@ describe('upgradeable stack', () => {
       }
     }, 120000)
 
-    it('the storage layouts of the six implementations match their snapshot', async () => {
+    it('the storage layouts of the eight implementations match their snapshot', async () => {
       const lines = (members: StorageMember[], indent = ''): string[] =>
         members.flatMap(
           ({ slot, offset, numberOfBytes, label, type, members }) => [
