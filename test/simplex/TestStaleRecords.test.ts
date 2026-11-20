@@ -256,9 +256,13 @@ describe('renewal and availability semantics', () => {
 
   it('initialize refuses a zero commitment age', async () => {
     const { baseRegistrar, priceOracle, ens } = await load()
-    const { namehash, zeroAddress } = await import('viem')
-    await expect(
-      deployBehindProxy(connection, 'SimplexController', [], owner.address, [
+    const { namehash, toFunctionSelector, zeroAddress } = await import('viem')
+    const reverted = await deployBehindProxy(
+      connection,
+      'SimplexController',
+      [],
+      owner.address,
+      [
         baseRegistrar.address,
         priceOracle.address,
         0n,
@@ -272,7 +276,10 @@ describe('renewal and availability semantics', () => {
           nftGateEnabled: false,
         },
         owner.address,
-      ]),
-    ).rejects.toThrow()
+      ],
+    ).catch((error) => error.walk())
+    expect(reverted.data?.data ?? reverted.data).toBe(
+      toFunctionSelector('MinCommitmentAgeZero()'),
+    )
   })
 })
