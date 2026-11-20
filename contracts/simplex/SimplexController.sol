@@ -52,7 +52,7 @@ contract SimplexController is
     // Implemented by hand rather than inheriting ReentrancyGuardUpgradeable so
     // the guard's state appends to the reserved `__gap` instead of inserting a
     // new base contract's storage ahead of existing variables — see
-    // docs/upgrades.md (this contract is already deployed behind a proxy).
+    // docs/upgrades.md (this contract is deployed behind a proxy).
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
 
@@ -649,7 +649,6 @@ contract SimplexController is
     /// @dev Guardian key: the registrar allowance (on the sponsor), the sales switch, and `withdraw`'s payee.
     address public beneficiary;
     address public sponsor;
-    // Slot 3: defaultResolver + publicSalesOpen pack together.
     /// @dev The resolver `registerReserved` points a brand's name at.
     address public defaultResolver;
     /// @dev Gates the payable path only. Credited and reserved registrations ignore it.
