@@ -20,7 +20,7 @@ async function fixture() {
 }
 const load = () => connection.networkHelpers.loadFixture(fixture)
 
-// The controller sits behind ~150 slots of OpenZeppelin upgradeable gaps.
+// The controller's own variables follow ~150 slots of OpenZeppelin upgradeable gaps.
 const SCAN = 400
 
 async function snapshot(address: `0x${string}`) {
@@ -43,7 +43,7 @@ function changed(before: string[], after: string[]) {
  * The controller is upgradeable until its ProxyAdmin is renounced, so its
  * storage must stay append-only and the new governance state must pack as
  * designed: defaultResolver with publicSalesOpen. A reordering that would
- * silently corrupt a live proxy is detected by these assertions.
+ * silently corrupt a deployed proxy is detected by these assertions.
  */
 describe('controller storage layout', () => {
   it('the beneficiary sits in its own slot', async () => {

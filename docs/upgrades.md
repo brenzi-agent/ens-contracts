@@ -20,8 +20,8 @@ of the `ProxyAdmin` is an immutable of the proxy. The owner of the `ProxyAdmin`
 upgrades the proxy with
 `ProxyAdmin.upgradeAndCall(proxy, implementation, data)`. In an upgrade, the
 implementation behind a proxy is replaced and the proxy's storage is kept — so
-the new implementation **must keep the exact storage layout** of the old one,
-only appending. Get this wrong and existing values (prices, the sponsor, …) are
+the exact storage layout of the old implementation **must be kept** by the new
+one, only appended to. Get this wrong and existing values (prices, the sponsor, …) are
 silently read from the wrong slots.
 
 Upgradeability is not permanent. A contract is frozen when the owner of its
@@ -34,8 +34,9 @@ proxy at nonce 1 that `scripts/prepare-upgrade.mjs` prints, never to the proxy:
 the same selectors are declared by `BaseRegistrarImplementation` and
 `SimplexController`, and a call of the `ProxyAdmin` owner to the proxy is
 delegated to them and applied to the contract's own ownership. A freeze is
-refused by `scripts/prepare-upgrade.mjs` until GOV8 has moved the `ProxyAdmin`
-to the timelock (launch-to-freeze plan, A7), and prepared after it.
+refused by `scripts/prepare-upgrade.mjs` while the admin Safe owns the
+`ProxyAdmin`; its preparation once GOV8 has moved the `ProxyAdmin` to the
+timelock (launch-to-freeze plan, A7) is a prerequisite of GOV8.
 
 ```mermaid
 flowchart LR
@@ -134,10 +135,10 @@ below it (invariant 2).
 
 ### `Reason` is storage
 
-`SimplexNamePolicy._names` holds `Reason`, and an enum is stored as its
-member's position. Once `.simplex` has reservations, reordering or removing a
-member relabels every name reserved under it, with nothing on chain to detect
-it. Values are only appended to the enum (invariant 2), and `None` is kept at
+`Reason` is stored in `SimplexNamePolicy._names`, and an enum is stored as its
+member's position. Once `.simplex` has reservations, every name reserved under
+a member is relabelled, silently, when that member is reordered or removed.
+Values are only appended to the enum (invariant 2), and `None` is kept at
 0 — `delete` writes zero. The members of `NameEntry` share one slot in
 declaration order, so reordering them swaps the two lists; keep them unchanged
 (invariant 2).
@@ -197,7 +198,8 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    these functions are a fixed interface. The EIP-712 domain name and version,
    each `*_TYPEHASH`, and each function called from outside the stack are
    part of the interface. Their signers and callers are the names service, the
-   webstore, each SimpleX app version in use, the dApp, ERC-721 wallets and
+   webstore, each SimpleX app version in use, the dApp, the resolver service
+   (`snrc-resolve.py`), `ens-metadata-service`, ERC-721 wallets and
    marketplaces, and `UniversalResolver` integrators. A changed intent or replaced
    function is added beside the current one where accepting the current one
    stays safe, and the current one is dropped through `INTENDED` after every
@@ -283,9 +285,9 @@ it is moved and `__gap` is untouched.
       with the base contracts of the current tree, so the `data` function and
       the values it writes are checked by the test, and the layout against the
       deployed implementation by `scripts/prepare-upgrade.mjs`.
-- [ ] **Run `test/simplex/TestControllerStorageLayout.test.ts`.** It reads raw
-      slots from a deployed proxy and asserts the packing and the reserved slots
-      directly.
+- [ ] **Run `test/simplex/TestControllerStorageLayout.test.ts`.** In it, raw
+      slots of a deployed proxy are read, and the packing and the reserved
+      slots are asserted directly.
 - [ ] **Review the new code for `delegatecall`.** By a `delegatecall` to an
       address other than the contract itself, that code is executed against
       the proxy's storage, the ERC-1967 slots included.
@@ -302,20 +304,22 @@ it is moved and `__gap` is untouched.
       values are exempt (invariant 4). The function passed as `data` runs with
       the `ProxyAdmin` as `msg.sender`: an
       `onlyOwner` function reverts there, and the `ProxyAdmin` is recorded as
-      the caller wherever one is recorded. With `SimplexResolver.multicall` as
-      `data`, each entry is executed by a `delegatecall` to `address(this)`,
-      that is by the proxy's own code with the `ProxyAdmin` as `msg.sender`: an
-      entry with the selector of `upgradeToAndCall` is executed as a nested
-      upgrade, by which its own implementation is installed in place of the
-      candidate (`TestUpgradeableStack.test.ts` shows it), and any other entry
+      the caller wherever one is recorded. With `SimplexResolver.multicall` or
+      `SimplexResolver.multicallWithNodeCheck` as `data`, each entry is
+      executed by a `delegatecall` to `address(this)`, that is by the proxy's
+      own code with the `ProxyAdmin` as `msg.sender`: an entry with the
+      selector of `upgradeToAndCall` is executed as a nested upgrade, by which
+      its own implementation is installed in place of the candidate
+      (`TestUpgradeableStack.test.ts` shows it for both), and any other entry
       reverts `ProxyDeniedAdminAccess`, discarded by `require(success)`, so
-      that `upgradeAndCall` reverts `FailedCall()`. Such `data` is prohibited.
+      that `upgradeAndCall` reverts `FailedCall()`. Any function that makes a
+      `delegatecall` to `address(this)` is prohibited as `data`.
 - [ ] **Review the new immutables.** A new immutable is assigned from
       constructor arguments only: at construction, `address(this)` is the
       implementation and `msg.sender` its deployer, so a domain separator or an
       owner derived from either is wrong under the proxy.
-      `SimplexNamePolicy._self` and `SubnameRegistrar._deployer` hold the
-      implementation and its deployer by design.
+      `SimplexNamePolicy._self` and `SubnameRegistrar._deployer` are assigned
+      the implementation's address and its deployer by design.
 - [ ] **Guard the function passed as `data`.** In each of the eight contracts it
       reverts unless `msg.sender` equals the immutable `_proxyAdmin`, the
       proxy's `ProxyAdmin` (its CREATE address at nonce 1), passed to the new
@@ -343,12 +347,14 @@ it is moved and `__gap` is untouched.
       at once, so the upgrades of the contract and of its callers are sent in
       one batch, simulated on a mainnet fork before it is proposed. Such a
       batch is prepared by the batch extension of `scripts/prepare-upgrade.mjs`
-      delivered with the tooling of #49 (brenzi/simplex-namespace-contract#18):
-      each candidate is prepared, the Safe MultiSend is assembled and simulated
-      on a mainnet fork with the admin Safe impersonated, and each
-      implementation slot is compared with its candidate. A function that the
-      names service or the dApp calls is dropped only after they call its
-      successor.
+      delivered with the tooling of #51 (brenzi/simplex-namespace-contract#19),
+      before #51's batch: each candidate is prepared, the Safe MultiSend is
+      assembled and simulated on a mainnet fork with the admin Safe
+      impersonated, and each implementation slot is compared with its
+      candidate. The same simulation and comparison are applied to every single
+      upgrade. A function that the names service or the dApp calls is dropped
+      only after they call its successor, except by the replacement way of
+      invariant 5, named in the upgrade's plan.
 - [ ] **Keep the EIP-712 pin tests.** The six domains are pinned by
       `TestEip712Domains.test.ts`, and the twelve `*_TYPEHASH` values by
       `TestApproveAllWithSig`, `TestApproveClaimWithSig`,
@@ -364,8 +370,8 @@ it is moved and `__gap` is untouched.
 
 ## `SimplexNamePolicy`
 
-The name policy (reserved names, community names, terms links, acceptances) sits
-behind its own `TransparentUpgradeableProxy`. It is bound to one controller and
+The name policy (reserved names, community names, terms links, acceptances) is
+deployed behind its own `TransparentUpgradeableProxy`. It is bound to one controller and
 one registrar by its immutables `controller()` and `registrar()`; a candidate
 whose `controller()` or `registrar()` differs from the current one is refused
 by `scripts/prepare-upgrade.mjs`, unless its `INTENDED` input names that
@@ -375,15 +381,15 @@ immutable for an intended change. Its own variables are
 `communityTermsLink`, `generalTermsLink`, `generalTermsHash`, then
 `uint256[42] __gap`; the invariants above apply to it unchanged.
 
-The policy compiles in the controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` and
-`MAX_SPONSORED_REGISTRATION`, and reads the controller's `ens` and `tldNode` once,
-in its constructor. A controller upgrade that changed any of them needs a policy
+The controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` and
+`MAX_SPONSORED_REGISTRATION` are compiled into the policy, and the controller's
+`ens` and `tldNode` are read once, in its constructor. A controller upgrade that changed any of them needs a policy
 upgrade as well.
 
 ## `SimplexSponsor`
 
-The sponsor (registrar allowances and `RegisterName` nonces) sits behind its own
-`TransparentUpgradeableProxy`. Its constructor assigns only the immutable
+The sponsor (registrar allowances and `RegisterName` nonces) is deployed behind
+its own `TransparentUpgradeableProxy`. Its constructor assigns only the immutable
 `controller`, so its proxy is deployed with empty `data`, and a function passed
 as `data` in an upgrade is guarded by `_proxyAdmin` alone. Its own variables
 are `registrarAllowance` (slot 0) and `nonces` (slot 1), and a new one is
@@ -396,9 +402,9 @@ address is set with `setSponsor`, in the order of D20 of
 
 ## `UniversalResolver`
 
-The universal resolver sits behind its own `TransparentUpgradeableProxy`. Its
-constructor assigns only the immutables `registry`, `batchGatewayProvider` and
-`unsafeCallGas`, so its proxy is deployed with empty `data`; its state is these
-immutables alone, and a function passed as `data` in an upgrade is guarded by
-`_proxyAdmin` alone. `address(this)`, the proxy, is the sender of its
+The universal resolver is deployed behind its own
+`TransparentUpgradeableProxy`. Its constructor assigns only the immutables
+`registry`, `batchGatewayProvider` and `unsafeCallGas`, part of its code, so its
+proxy is deployed with empty `data` and its storage layout is empty, and a
+function passed as `data` in an upgrade is guarded by `_proxyAdmin` alone. `address(this)`, the proxy, is the sender of its
 `OffchainLookup`, so a client sends the CCIP-read callback to the proxy.
