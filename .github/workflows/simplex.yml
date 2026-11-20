@@ -1,0 +1,33 @@
+name: SimpleX tests
+
+on:
+  push:
+    branches: [simplex]
+  pull_request:
+    branches: [simplex]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm exec hardhat compile
+
+      - run: pnpm exec vitest run
+        env:
+          NODE_OPTIONS: --disable-warning=ExperimentalWarning
