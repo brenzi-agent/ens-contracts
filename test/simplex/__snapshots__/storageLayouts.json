@@ -110,5 +110,10 @@
     "6:0+32 SimplexNamePolicy.generalTermsLink string",
     "7:0+32 SimplexNamePolicy.generalTermsHash bytes32",
     "8:0+1344 SimplexNamePolicy.__gap uint256[42]"
-  ]
+  ],
+  "SimplexSponsor": [
+    "0:0+32 SimplexSponsor.registrarAllowance mapping(address => uint256)",
+    "1:0+32 SimplexSponsor.nonces mapping(address => uint256)"
+  ],
+  "UniversalResolver": []
 }
