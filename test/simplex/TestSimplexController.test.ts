@@ -1,13 +1,13 @@
 import hre from 'hardhat'
-import {
-  encodeFunctionData,
-  labelhash,
-  namehash,
-  zeroAddress,
-  zeroHash,
-} from 'viem'
+import { labelhash, namehash, zeroAddress, zeroHash } from 'viem'
 
-import { commitUnderGeneralTerms, deployNamePolicy } from './fixtures/namesV2.js'
+import {
+  acceptGeneralTermsForRenewal,
+  commitUnderGeneralTerms,
+  deployBehindProxy,
+  deployNamePolicy,
+  proxyAdminOf,
+} from './fixtures/namesV2.js'
 import { DAY } from '../fixtures/constants.js'
 
 const TRADEMARK = 2 // SimplexNamePolicy.Reason.Trademark
@@ -34,14 +34,12 @@ async function deploySimplexControllerProxy(args: {
   }
   ownerAddress: `0x${string}`
 }) {
-  const implementation = await connection.viem.deployContract(
+  const { contract: controller, implementation } = await deployBehindProxy(
+    connection,
     'SimplexController',
     [],
-  )
-  const initData = encodeFunctionData({
-    abi: implementation.abi,
-    functionName: 'initialize',
-    args: [
+    args.ownerAddress,
+    [
       args.base,
       args.prices,
       args.minCommitmentAge,
@@ -50,16 +48,8 @@ async function deploySimplexControllerProxy(args: {
       args.config,
       args.ownerAddress,
     ],
-  })
-  const proxy = await connection.viem.deployContract('SimplexControllerProxy', [
-    implementation.address,
-    initData,
-  ])
-  const controller = await connection.viem.getContractAt(
-    'SimplexController',
-    proxy.address,
   )
-  return { controller, implementation, proxyAddress: proxy.address }
+  return { controller, implementation, proxyAddress: controller.address }
 }
 
 const REGISTRATION_TIME = 730n * DAY
@@ -531,7 +521,7 @@ describe('SimplexController', () => {
     })
   })
 
-  describe('UUPS upgradeability', () => {
+  describe('Upgradeability through the ProxyAdmin', () => {
     it('re-initializing the proxy reverts', async () => {
       const { controller, baseRegistrar, priceOracle, ensRegistry, mockNft } =
         await loadFixture()
@@ -590,11 +580,13 @@ describe('SimplexController', () => {
         'SimplexController',
         [],
       )
+      const proxyAdmin = await proxyAdminOf(connection, controller.address)
       await expect(
-        controller.write.upgradeTo([newImpl.address], {
-          account: registrantAccount,
-        }),
-      ).toBeRevertedWithString('Ownable: caller is not the owner')
+        proxyAdmin.write.upgradeAndCall(
+          [controller.address, newImpl.address, '0x'],
+          { account: registrantAccount },
+        ),
+      ).toBeRevertedWithCustomError('OwnableUnauthorizedAccount')
     })
 
     it('owner can upgrade and storage is preserved', async () => {
@@ -606,9 +598,11 @@ describe('SimplexController', () => {
         'SimplexController',
         [],
       )
-      await controller.write.upgradeTo([newImpl.address], {
-        account: ownerAccount,
-      })
+      const proxyAdmin = await proxyAdminOf(connection, controller.address)
+      await proxyAdmin.write.upgradeAndCall(
+        [controller.address, newImpl.address, '0x'],
+        { account: ownerAccount },
+      )
 
       expect(await controller.read.minCharLength()).toBe(5)
       expect((await controller.read.namePolicy()).toLowerCase()).toBe(
@@ -622,9 +616,11 @@ describe('SimplexController', () => {
         'SimplexController',
         [],
       )
-      await controller.write.upgradeTo([newImpl.address], {
-        account: ownerAccount,
-      })
+      const proxyAdmin = await proxyAdminOf(connection, controller.address)
+      await proxyAdmin.write.upgradeAndCall(
+        [controller.address, newImpl.address, '0x'],
+        { account: ownerAccount },
+      )
       await commitAndRegister(controller, 'postupgrade', registrantAccount)
     })
 
@@ -1214,6 +1210,9 @@ describe('SimplexController', () => {
       const id = BigInt(labelhash('renewme'))
       const before = await baseRegistrar.read.nameExpires([id])
       const price = await controller.read.rentPrice(['renewme', RENEWAL_TIME])
+      await acceptGeneralTermsForRenewal(connection, controller, 'renewme', RENEWAL_TIME, {
+        account: registrantAccount,
+      })
       await controller.write.renew(['renewme', RENEWAL_TIME, zeroHash], {
         account: registrantAccount,
         value: price.base,
@@ -1241,6 +1240,9 @@ describe('SimplexController', () => {
       const before = await baseRegistrar.read.nameExpires([id])
       const year = 365n * DAY
       const price = await controller.read.rentPrice(['yearrenew', year])
+      await acceptGeneralTermsForRenewal(connection, controller, 'yearrenew', year, {
+        account: registrantAccount,
+      })
       await controller.write.renew(['yearrenew', year, zeroHash], {
         account: registrantAccount,
         value: price.base,
@@ -1268,6 +1270,9 @@ describe('SimplexController', () => {
       await testClient.increaseTime({ seconds: Number(REGISTRATION_TIME) + Number(DAY) })
       await testClient.mine({ blocks: 1 })
       const price = await controller.read.rentPrice(['graceful', REGISTRATION_TIME])
+      await acceptGeneralTermsForRenewal(connection, controller, 'graceful', REGISTRATION_TIME, {
+        account: registrantAccount,
+      })
       await controller.write.renew(['graceful', REGISTRATION_TIME, zeroHash], {
         account: registrantAccount,
         value: price.base,
@@ -1280,6 +1285,9 @@ describe('SimplexController', () => {
       await commitAndRegister(controller, 'renewexcess', registrantAccount)
       const balBefore = await publicClient.getBalance({ address: controller.address })
       const price = await controller.read.rentPrice(['renewexcess', RENEWAL_TIME])
+      await acceptGeneralTermsForRenewal(connection, controller, 'renewexcess', RENEWAL_TIME, {
+        account: registrantAccount,
+      })
       await controller.write.renew(['renewexcess', RENEWAL_TIME, zeroHash], {
         account: registrantAccount,
         value: price.base + 12345n,
@@ -1352,6 +1360,9 @@ describe('SimplexController', () => {
       const { controller } = await loadFixture()
       await commitAndRegister(controller, 'farrenew', registrantAccount)
       const price = await controller.read.rentPrice(['farrenew', RENEWAL_TIME + DAY])
+      await acceptGeneralTermsForRenewal(connection, controller, 'farrenew', RENEWAL_TIME + DAY, {
+        account: registrantAccount,
+      })
       await expect(
         controller.write.renew(['farrenew', RENEWAL_TIME + DAY, zeroHash], {
           account: registrantAccount,
@@ -1590,6 +1601,9 @@ describe('SimplexController', () => {
         value: total, // exact — no refund, so register succeeds
       })
       const price = await controller.read.rentPrice(['renewfail', RENEWAL_TIME])
+      await acceptGeneralTermsForRenewal(connection, controller, 'renewfail', RENEWAL_TIME, {
+        account: rejecter.address,
+      })
       await expect(
         controller.write.renew(['renewfail', RENEWAL_TIME, zeroHash], {
           account: rejecter.address,

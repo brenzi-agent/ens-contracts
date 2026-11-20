@@ -1,9 +1,20 @@
+import type {
+  ConstructorArgs,
+  ContractAbis,
+} from '@nomicfoundation/hardhat-viem/types'
+import type { ArtifactManager } from 'hardhat/types/artifacts'
 import type { NetworkConnection } from 'hardhat/types/network'
+import { readFile } from 'node:fs/promises'
 import {
+  type Abi,
+  type ContractFunctionArgs,
+  type ContractFunctionName,
   encodeFunctionData,
+  getAddress,
   keccak256,
   labelhash,
   namehash,
+  slice,
   toHex,
   zeroAddress,
   zeroHash,
@@ -61,14 +72,175 @@ export const GENERAL_TERMS = keccak256(toHex(GENERAL_TERMS_LINK))
 export const COMMUNITY_TERMS_LINK = termsLink('community-terms.md', '2')
 export const COMMUNITY_TERMS = keccak256(toHex(COMMUNITY_TERMS_LINK))
 
+const erc1967Slot = (name: string) =>
+  toHex(BigInt(keccak256(toHex(`eip1967.proxy.${name}`))) - 1n, { size: 32 })
+
+async function addressInSlot(
+  connection: NetworkConnection,
+  proxy: `0x${string}`,
+  slot: `0x${string}`,
+) {
+  const publicClient = await connection.viem.getPublicClient()
+  const word = await publicClient.getStorageAt({ address: proxy, slot })
+  return getAddress(slice(word!, 12))
+}
+
+export const implementationOf = (
+  connection: NetworkConnection,
+  proxy: `0x${string}`,
+) => addressInSlot(connection, proxy, erc1967Slot('implementation'))
+
+export async function proxyAdminOf(
+  connection: NetworkConnection,
+  proxy: `0x${string}`,
+) {
+  return connection.viem.getContractAt(
+    'ProxyAdmin',
+    await addressInSlot(connection, proxy, erc1967Slot('admin')),
+  )
+}
+
+type Initialize<ContractName extends keyof ContractAbis> = Extract<
+  ContractFunctionName<ContractAbis[ContractName], 'nonpayable'>,
+  'initialize'
+>
+
+export type InitializeParameters<ContractName extends keyof ContractAbis> = [
+  Initialize<ContractName>,
+] extends [never]
+  ? []
+  : [
+      initializeArgs: ContractFunctionArgs<
+        ContractAbis[ContractName],
+        'nonpayable',
+        Initialize<ContractName>
+      >,
+    ]
+
+export async function deployBehindProxy<
+  ContractName extends keyof ContractAbis,
+>(
+  connection: NetworkConnection,
+  contractName: ContractName,
+  constructorArgs: ConstructorArgs<ContractName>,
+  initialOwner: `0x${string}`,
+  ...initialize: NoInfer<InitializeParameters<ContractName>>
+) {
+  const [initializeArgs] = initialize as [] | [readonly unknown[]]
+  const implementation = await connection.viem.deployContract(
+    contractName,
+    constructorArgs,
+  )
+  const proxy = await connection.viem.deployContract(
+    'TransparentUpgradeableProxy',
+    [
+      implementation.address,
+      initialOwner,
+      initializeArgs
+        ? encodeFunctionData({
+            abi: implementation.abi as Abi,
+            functionName: 'initialize',
+            args: initializeArgs,
+          })
+        : '0x',
+    ],
+  )
+  return {
+    contract: await connection.viem.getContractAt(contractName, proxy.address),
+    implementation,
+    proxyAdmin: await proxyAdminOf(connection, proxy.address),
+  }
+}
+
+export type StorageMember = {
+  label: string
+  slot: bigint
+  offset: number
+  numberOfBytes: bigint
+  type: string
+  members: StorageMember[]
+}
+
+export type StorageVariable = StorageMember & { contract: string }
+
+export async function storageLayout(
+  artifacts: ArtifactManager,
+  contractName: string,
+): Promise<StorageVariable[]> {
+  const artifact = await artifacts.readArtifact(contractName)
+  const outputPath = await artifacts.getBuildInfoOutputPath(
+    artifact.buildInfoId!,
+  )
+  const { output } = JSON.parse(await readFile(outputPath!, 'utf8'))
+  const { storage, types } =
+    output.contracts[artifact.inputSourceName!][contractName].storageLayout
+  const definitions = (node: any, nodeType: string): any[] =>
+    node?.nodeType === nodeType
+      ? [node]
+      : typeof node === 'object' && node !== null
+        ? Object.values(node).flatMap((child) => definitions(child, nodeType))
+        : []
+  const enumValues = new Map(
+    definitions(output.sources, 'EnumDefinition').map((definition) => [
+      definition.canonicalName,
+      definition.members.map((member: any) => member.name).join(','),
+    ]),
+  )
+  const declaringContracts = new Map<number, string>(
+    definitions(output.sources, 'ContractDefinition').flatMap((definition) =>
+      definition.nodes
+        .filter((node: any) => node.nodeType === 'VariableDeclaration')
+        .map((node: any) => [node.id, definition.name]),
+    ),
+  )
+  const declaringContract = (astId: number) => {
+    const name = declaringContracts.get(astId)
+    if (name === undefined)
+      throw new Error(`${contractName}: no contract declares variable ${astId}`)
+    return name
+  }
+  const typeLabel = (type: string): string =>
+    types[type].label.replace(
+      /enum ([\w.]+)/g,
+      (label: string, name: string) => {
+        const values = enumValues.get(name)
+        if (values === undefined)
+          throw new Error(`${contractName}: no definition of enum ${name}`)
+        return `${label} {${values}}`
+      },
+    )
+  const membersOf = (type: string): any[] => {
+    const { members, value, base } = types[type]
+    if (members) return members
+    if (value) return membersOf(value)
+    if (base) return membersOf(base)
+    return []
+  }
+  const member = (entry: any): StorageMember => ({
+    label: entry.label,
+    slot: BigInt(entry.slot),
+    offset: entry.offset,
+    numberOfBytes: BigInt(types[entry.type].numberOfBytes),
+    type: typeLabel(entry.type),
+    members: membersOf(entry.type).map(member),
+  })
+  return storage.map(
+    (entry: any): StorageVariable => ({
+      ...member(entry),
+      contract: declaringContract(entry.astId),
+    }),
+  )
+}
+
 /**
- * The full `.simplex` stack, wired as `deploy-simplex.mjs` will wire it:
+ * The full `.simplex` stack, wired as in `deploy-mainnet.mjs`:
  * SimplexResolver in place of PublicResolver, the SubnameRegistrar in the
  * resolver's wrapper slot, the controller proxy as both trusted controller and
  * credit granter, and no reverse registrar.
  *
- * `owner` owns the controller. `beneficiary` is the guardian key. `registrar`
- * stands in for the names service hot wallet and starts with no credits.
+ * `owner` owns the controller and the eight `ProxyAdmin`s. `beneficiary` is the
+ * guardian key. `registrar` stands in for the names service hot wallet and
+ * starts with no credits.
  */
 export async function deployNamesV2(
   connection: NetworkConnection,
@@ -78,10 +250,20 @@ export async function deployNamesV2(
   },
 ) {
   const viem = connection.viem
-  const ens = await viem.deployContract('ENSRegistry', [])
-  const baseRegistrar = await viem.deployContract(
+  const [deployer] = await viem.getWalletClients()
+  const { contract: ens } = await deployBehindProxy(
+    connection,
+    'ENSRegistry',
+    [],
+    accounts.owner,
+    [deployer.account.address],
+  )
+  const { contract: baseRegistrar } = await deployBehindProxy(
+    connection,
     'BaseRegistrarImplementation',
     [ens.address, TLD_NODE],
+    accounts.owner,
+    [ens.address, TLD_NODE, deployer.account.address],
   )
   await ens.write.setSubnodeOwner([zeroHash, labelhash(TLD), baseRegistrar.address])
 
@@ -97,11 +279,12 @@ export async function deployNamesV2(
     PRICE_EXCEPTIONS,
   ])
 
-  const implementation = await viem.deployContract('SimplexController', [])
-  const initData = encodeFunctionData({
-    abi: implementation.abi,
-    functionName: 'initialize',
-    args: [
+  const { contract: controller, implementation } = await deployBehindProxy(
+    connection,
+    'SimplexController',
+    [],
+    accounts.owner,
+    [
       baseRegistrar.address,
       priceOracle.address,
       1n, // minCommitmentAge: must be non-zero; 1s means a separate block suffices
@@ -116,23 +299,25 @@ export async function deployNamesV2(
       },
       accounts.owner,
     ],
-  })
-  const proxy = await viem.deployContract('SimplexControllerProxy', [
-    implementation.address,
-    initData,
-  ])
-  const controller = await viem.getContractAt('SimplexController', proxy.address)
+  )
 
-  const subnameRegistrar = await viem.deployContract('SubnameRegistrar', [
-    ens.address,
-    baseRegistrar.address,
-  ])
-  const resolver = await viem.deployContract('SimplexResolver', [
-    ens.address,
-    subnameRegistrar.address, // wrapper slot: subname authorisation routes here
-    controller.address, // trustedETHController
-    zeroAddress, // trustedReverseRegistrar: unused, and inert at address(0)
-  ])
+  const { contract: subnameRegistrar } = await deployBehindProxy(
+    connection,
+    'SubnameRegistrar',
+    [ens.address, baseRegistrar.address],
+    accounts.owner,
+  )
+  const { contract: resolver } = await deployBehindProxy(
+    connection,
+    'SimplexResolver',
+    [
+      ens.address,
+      subnameRegistrar.address, // wrapper slot: subname authorisation routes here
+      controller.address, // trustedETHController
+      zeroAddress, // trustedReverseRegistrar: unused, and inert at address(0)
+    ],
+    accounts.owner,
+  )
   await subnameRegistrar.write.setResolver([resolver.address])
 
   await baseRegistrar.write.addController([controller.address])
@@ -144,9 +329,12 @@ export async function deployNamesV2(
     account: accounts.owner,
   })
 
-  const sponsor = await viem.deployContract('SimplexSponsor', [
-    controller.address,
-  ])
+  const { contract: sponsor } = await deployBehindProxy(
+    connection,
+    'SimplexSponsor',
+    [controller.address],
+    accounts.owner,
+  )
   await controller.write.setSponsor([sponsor.address], {
     account: accounts.owner,
   })
@@ -155,6 +343,14 @@ export async function deployNamesV2(
     connection,
     controller,
     baseRegistrar,
+    accounts.owner,
+  )
+
+  const gatewayProvider = await viem.deployContract('DummyGatewayProvider', [])
+  const { contract: universalResolver } = await deployBehindProxy(
+    connection,
+    'UniversalResolver',
+    [deployer.account.address, ens.address, gatewayProvider.address],
     accounts.owner,
   )
 
@@ -168,6 +364,8 @@ export async function deployNamesV2(
     implementation,
     resolver,
     subnameRegistrar,
+    universalResolver,
+    gatewayProvider,
     priceOracle,
     dummyOracle,
   }
@@ -179,16 +377,13 @@ export async function deployNamePolicy(
   baseRegistrar: any,
   owner: `0x${string}`,
 ) {
-  const viem = connection.viem
-  const namePolicyImplementation = await viem.deployContract('SimplexNamePolicy', [
-    controller.address,
-    baseRegistrar.address,
-  ])
-  const namePolicyProxy = await viem.deployContract('SimplexNamePolicyProxy', [
-    namePolicyImplementation.address,
-    '0x',
-  ])
-  const namePolicy = await viem.getContractAt('SimplexNamePolicy', namePolicyProxy.address)
+  const { contract: namePolicy, implementation: namePolicyImplementation } =
+    await deployBehindProxy(
+      connection,
+      'SimplexNamePolicy',
+      [controller.address, baseRegistrar.address],
+      owner,
+    )
   await baseRegistrar.write.addController([namePolicy.address])
   await controller.write.setNamePolicy([namePolicy.address], {
     account: owner,
@@ -277,6 +472,7 @@ export const eip712Types = {
     { name: 'duration', type: 'uint256' },
     { name: 'resolver', type: 'address' },
     { name: 'data', type: 'bytes[]' },
+    { name: 'disputeDays', type: 'uint256' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
@@ -314,9 +510,30 @@ export const eip712Types = {
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
+  AcceptGeneralTermsForRenewal: [
+    { name: 'tokenId', type: 'uint256' },
+    { name: 'expires', type: 'uint256' },
+    { name: 'duration', type: 'uint256' },
+    { name: 'termsHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
+  AcceptCommunityTermsForRenewal: [
+    { name: 'tokenId', type: 'uint256' },
+    { name: 'expires', type: 'uint256' },
+    { name: 'duration', type: 'uint256' },
+    { name: 'termsHash', type: 'bytes32' },
+    { name: 'nonce', type: 'uint256' },
+    { name: 'deadline', type: 'uint256' },
+  ],
 } as const
 
 export const FAR_FUTURE = 4102444800n
+
+export const MIN_DISPUTE_DAYS = 14n
+
+export const passDisputePeriod = (connection: NetworkConnection) =>
+  connection.networkHelpers.time.increase(MIN_DISPUTE_DAYS * DAY)
 
 /** Sign one of the intents above against `verifyingContract`. */
 export async function signIntent(
@@ -370,8 +587,12 @@ export async function signRegistration<
   connection: NetworkConnection,
   sponsor: any,
   reg: R,
-  { signer, deadline = FAR_FUTURE }: { signer?: any; deadline?: bigint } = {},
-): Promise<[R, bigint, bigint, `0x${string}`]> {
+  {
+    signer,
+    deadline = FAR_FUTURE,
+    disputeDays = MIN_DISPUTE_DAYS,
+  }: { signer?: any; deadline?: bigint; disputeDays?: bigint } = {},
+): Promise<[R, bigint, bigint, bigint, `0x${string}`]> {
   const client =
     signer ??
     (await connection.viem.getWalletClients()).find(
@@ -391,11 +612,12 @@ export async function signRegistration<
       duration: reg.duration,
       resolver: reg.resolver,
       data: reg.data,
+      disputeDays,
       nonce,
       deadline,
     },
   )
-  return [reg, nonce, deadline, sig]
+  return [reg, disputeDays, nonce, deadline, sig]
 }
 
 /** `sponsor.registerWithCredit` for `reg`, signed by its owner. */
@@ -473,6 +695,88 @@ export async function acceptGeneralTermsForClaim(
     [tokenId, from, await baseRegistrar.read.offers([tokenId]), GENERAL_TERMS],
     options,
   )
+}
+
+export async function acceptGeneralTermsForRenewal(
+  connection: NetworkConnection,
+  controller: any,
+  label: string,
+  duration: bigint,
+  options: { account: any },
+) {
+  const namePolicy = await connection.viem.getContractAt(
+    'SimplexNamePolicy',
+    await controller.read.namePolicy(),
+  )
+  const tokenId = BigInt(labelhash(label))
+  return namePolicy.write.acceptGeneralTermsForRenewal(
+    [
+      tokenId,
+      await nameExpires(connection, namePolicy, tokenId),
+      duration,
+      GENERAL_TERMS,
+    ],
+    options,
+  )
+}
+
+async function nameExpires(
+  connection: NetworkConnection,
+  namePolicy: any,
+  tokenId: bigint,
+): Promise<bigint> {
+  const registrar = await connection.viem.getContractAt(
+    'BaseRegistrarImplementation',
+    await namePolicy.read.registrar(),
+  )
+  return registrar.read.nameExpires([tokenId])
+}
+
+export async function signGeneralTermsForRenewal(
+  connection: NetworkConnection,
+  controller: any,
+  label: string,
+  duration: bigint,
+  holder: `0x${string}`,
+): Promise<
+  [
+    bigint,
+    bigint,
+    bigint,
+    `0x${string}`,
+    `0x${string}`,
+    bigint,
+    bigint,
+    `0x${string}`,
+  ]
+> {
+  const namePolicy = await connection.viem.getContractAt(
+    'SimplexNamePolicy',
+    await controller.read.namePolicy(),
+  )
+  const client = (await connection.viem.getWalletClients()).find(
+    (c) => c.account.address.toLowerCase() === holder.toLowerCase(),
+  )
+  if (!client) throw new Error(`no wallet client for ${holder}`)
+  const tokenId = BigInt(labelhash(label))
+  const expires = await nameExpires(connection, namePolicy, tokenId)
+  const nonce: bigint = await namePolicy.read.nonces([holder])
+  const sig = await signIntent(
+    await connection.viem.getPublicClient(),
+    client,
+    'SimplexNamePolicy',
+    namePolicy.address,
+    'AcceptGeneralTermsForRenewal',
+    {
+      tokenId,
+      expires,
+      duration,
+      termsHash: GENERAL_TERMS,
+      nonce,
+      deadline: FAR_FUTURE,
+    },
+  )
+  return [tokenId, expires, duration, GENERAL_TERMS, holder, nonce, FAR_FUTURE, sig]
 }
 
 /** Enough allowance that a test never has to think about it: $1000. */

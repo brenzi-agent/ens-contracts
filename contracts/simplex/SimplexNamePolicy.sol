@@ -1,14 +1,13 @@
 //SPDX-License-Identifier: MIT
 pragma solidity ~0.8.26;
 
-import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {BaseRegistrarImplementation} from "../ethregistrar/BaseRegistrarImplementation.sol";
 import {ENS} from "../registry/ENS.sol";
 import {INamePolicy} from "./INamePolicy.sol";
 import {IClearableResolver, MAX_REGISTRATION, MAX_SPONSORED_REGISTRATION, MIN_REGISTRATION, SimplexController} from "./SimplexController.sol";
 
-contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
+contract SimplexNamePolicy is INamePolicy {
     SimplexController public immutable controller;
     BaseRegistrarImplementation public immutable registrar;
     ENS private immutable _ens;
@@ -55,6 +54,10 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         keccak256(
             "AcceptGeneralTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)"
         );
+    bytes32 public constant ACCEPT_GENERAL_TERMS_FOR_RENEWAL_TYPEHASH =
+        keccak256(
+            "AcceptGeneralTermsForRenewal(uint256 tokenId,uint256 expires,uint256 duration,bytes32 termsHash,uint256 nonce,uint256 deadline)"
+        );
     bytes32 public constant ACCEPT_COMMUNITY_TERMS_TYPEHASH =
         keccak256(
             "AcceptCommunityTerms(bytes32 commitment,bytes32 termsHash,uint256 nonce,uint256 deadline)"
@@ -62,6 +65,10 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     bytes32 public constant ACCEPT_COMMUNITY_TERMS_FOR_CLAIM_TYPEHASH =
         keccak256(
             "AcceptCommunityTermsForClaim(uint256 tokenId,address from,uint256 offer,bytes32 termsHash,uint256 nonce,uint256 deadline)"
+        );
+    bytes32 public constant ACCEPT_COMMUNITY_TERMS_FOR_RENEWAL_TYPEHASH =
+        keccak256(
+            "AcceptCommunityTermsForRenewal(uint256 tokenId,uint256 expires,uint256 duration,bytes32 termsHash,uint256 nonce,uint256 deadline)"
         );
 
     event ReservedNameAdded(string name, Reason reason);
@@ -90,6 +97,8 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     error ZeroTerms();
     error TermsMismatch(bytes32 accepted, bytes32 current);
     error TermsNotAccepted(string name);
+    error NotHolder(string name);
+    error ExpiryMismatch(uint256 named, uint256 current);
     error SignatureExpired();
     error InvalidNonce();
     error InvalidSignature();
@@ -98,8 +107,6 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
     error NameReserved(string name);
     error DurationTooShort(uint256 duration);
     error DurationTooLong(uint256 duration);
-    error Frozen();
-    error ImplementationMismatch();
     error NotProxy();
 
     constructor(
@@ -187,7 +194,7 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         emit ReservedNameRemoved(label);
 
         bytes32 namehash = keccak256(abi.encodePacked(_tldNode, labelhash));
-        registrar.registerWithLabel(label, address(this), duration);
+        registrar.registerWithLabel(label, address(this), duration, 0);
         _retireStaleRecords(namehash);
         address resolver = controller.defaultResolver();
         if (resolver != address(0))
@@ -391,6 +398,84 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         _acceptForClaim(tokenId, from, offer, acceptedTermsHash, communityTermsHash, recipient);
     }
 
+    function acceptGeneralTermsForRenewal(
+        uint256 tokenId,
+        uint256 expires,
+        uint256 duration,
+        bytes32 acceptedTermsHash
+    ) external {
+        _acceptForRenewal(tokenId, expires, duration, acceptedTermsHash, generalTermsHash, msg.sender);
+    }
+
+    function acceptGeneralTermsForRenewalWithSig(
+        uint256 tokenId,
+        uint256 expires,
+        uint256 duration,
+        bytes32 acceptedTermsHash,
+        address holder,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata sig
+    ) external {
+        _consumeIntent(
+            holder,
+            keccak256(
+                abi.encode(
+                    ACCEPT_GENERAL_TERMS_FOR_RENEWAL_TYPEHASH,
+                    tokenId,
+                    expires,
+                    duration,
+                    acceptedTermsHash,
+                    nonce,
+                    deadline
+                )
+            ),
+            nonce,
+            deadline,
+            sig
+        );
+        _acceptForRenewal(tokenId, expires, duration, acceptedTermsHash, generalTermsHash, holder);
+    }
+
+    function acceptCommunityTermsForRenewal(
+        uint256 tokenId,
+        uint256 expires,
+        uint256 duration,
+        bytes32 acceptedTermsHash
+    ) external {
+        _acceptForRenewal(tokenId, expires, duration, acceptedTermsHash, communityTermsHash, msg.sender);
+    }
+
+    function acceptCommunityTermsForRenewalWithSig(
+        uint256 tokenId,
+        uint256 expires,
+        uint256 duration,
+        bytes32 acceptedTermsHash,
+        address holder,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata sig
+    ) external {
+        _consumeIntent(
+            holder,
+            keccak256(
+                abi.encode(
+                    ACCEPT_COMMUNITY_TERMS_FOR_RENEWAL_TYPEHASH,
+                    tokenId,
+                    expires,
+                    duration,
+                    acceptedTermsHash,
+                    nonce,
+                    deadline
+                )
+            ),
+            nonce,
+            deadline,
+            sig
+        );
+        _acceptForRenewal(tokenId, expires, duration, acceptedTermsHash, communityTermsHash, holder);
+    }
+
     function consumeRegistration(
         string calldata label,
         bytes32 labelhash,
@@ -418,6 +503,22 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         bytes32 accepted = acceptedClaimTerms[tokenId][from][to][offer];
         delete acceptedClaimTerms[tokenId][from][to][offer];
         _confirmAcceptance(_names[bytes32(tokenId)].community, accepted, label, to);
+    }
+
+    function consumeRenewal(
+        string calldata label,
+        bytes32 labelhash,
+        uint256 duration,
+        address holder
+    ) external {
+        if (msg.sender != address(controller)) revert NotController();
+        if (address(this) == _self) revert NotProxy();
+        uint256 tokenId = uint256(labelhash);
+        uint256 expires = registrar.nameExpires(tokenId);
+        if (!_holds(holder, tokenId, expires)) revert NotHolder(label);
+        bytes32 accepted = acceptedRenewalTerms[tokenId][holder][expires][duration];
+        delete acceptedRenewalTerms[tokenId][holder][expires][duration];
+        _confirmAcceptance(_names[labelhash].community, accepted, label, holder);
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
@@ -467,6 +568,35 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         acceptedClaimTerms[tokenId][from][recipient][offer] = acceptedTermsHash;
     }
 
+    function _acceptForRenewal(
+        uint256 tokenId,
+        uint256 expires,
+        uint256 duration,
+        bytes32 acceptedTermsHash,
+        bytes32 currentTermsHash,
+        address holder
+    ) private {
+        if (!_isCurrentTerms(acceptedTermsHash, currentTermsHash))
+            revert TermsMismatch(acceptedTermsHash, currentTermsHash);
+        uint256 currentExpires = registrar.nameExpires(tokenId);
+        if (expires != currentExpires) revert ExpiryMismatch(expires, currentExpires);
+        acceptedRenewalTerms[tokenId][holder][expires][duration] = acceptedTermsHash;
+    }
+
+    function _holds(
+        address account,
+        uint256 tokenId,
+        uint256 expires
+    ) private view returns (bool) {
+        if (expires > block.timestamp)
+            return registrar.ownerOf(tokenId) == account;
+        uint256 balance = registrar.balanceOf(account);
+        for (uint256 i = 0; i < balance; ++i)
+            if (registrar.tokenOfOwnerByIndex(account, i) == tokenId)
+                return true;
+        return false;
+    }
+
     function _confirmAcceptance(
         bool community,
         bytes32 accepted,
@@ -510,17 +640,10 @@ contract SimplexNamePolicy is INamePolicy, UUPSUpgradeable {
         }
     }
 
-    function _authorizeUpgrade(
-        address newImplementation
-    ) internal view override onlyOwner {
-        if (controller.frozen()) revert Frozen();
-        SimplexNamePolicy next = SimplexNamePolicy(newImplementation);
-        if (next.controller() != controller || next.registrar() != registrar)
-            revert ImplementationMismatch();
-    }
-
     string public communityTermsLink;
     string public generalTermsLink;
     bytes32 public generalTermsHash;
-    uint256[42] private __gap;
+    mapping(uint256 => mapping(address => mapping(uint256 => mapping(uint256 => bytes32))))
+        public acceptedRenewalTerms;
+    uint256[41] private __gap;
 }

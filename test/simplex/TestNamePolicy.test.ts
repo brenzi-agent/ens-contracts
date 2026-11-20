@@ -1,6 +1,8 @@
 import hre from 'hardhat'
 import {
+  concat,
   getAddress,
+  keccak256,
   labelhash,
   pad,
   size,
@@ -11,14 +13,17 @@ import {
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   commitUnderGeneralTerms,
   COMMUNITY_TERMS,
   COMMUNITY_TERMS_LINK,
   deployNamesV2,
   GENERAL_TERMS,
   GENERAL_TERMS_LINK,
+  implementationOf,
   MIN_REGISTRATION,
   node,
+  proxyAdminOf,
   Reason,
   registration,
   YEAR,
@@ -133,44 +138,26 @@ describe('name policy', () => {
   })
 
   describe('upgrades', () => {
-    it('only the controller owner upgrades the policy', async () => {
+    it('only the ProxyAdmin owner upgrades the policy', async () => {
       const { controller, baseRegistrar, namePolicy } = await load()
       const next = await implementationBoundTo(
         controller.address,
         baseRegistrar.address,
       )
+      const proxyAdmin = await proxyAdminOf(connection, namePolicy.address)
       await expect(
-        namePolicy.write.upgradeTo([next.address], { account: guardian }),
-      ).toBeRevertedWithCustomError('NotOwner')
-      await expect(
-        namePolicy.write.upgradeTo([next.address], { account: owner }),
+        proxyAdmin.write.upgradeAndCall(
+          [namePolicy.address, next.address, '0x'],
+          { account: guardian },
+        ),
+      ).toBeRevertedWithCustomError('OwnableUnauthorizedAccount')
+      await proxyAdmin.write.upgradeAndCall(
+        [namePolicy.address, next.address, '0x'],
+        { account: owner },
       )
-        .toEmitEvent('Upgraded')
-        .withArgs({ implementation: getAddress(next.address) })
-    })
-
-    it('an upgrade reverts once the controller is frozen', async () => {
-      const { controller, baseRegistrar, namePolicy } = await load()
-      const next = await implementationBoundTo(
-        controller.address,
-        baseRegistrar.address,
+      expect(await implementationOf(connection, namePolicy.address)).toBe(
+        getAddress(next.address),
       )
-      await controller.write.freeze({ account: owner })
-      await expect(
-        namePolicy.write.upgradeTo([next.address], { account: owner }),
-      ).toBeRevertedWithCustomError('Frozen')
-    })
-
-    it('an upgrade reverts for an implementation bound to another controller or registrar', async () => {
-      const { controller, baseRegistrar, namePolicy, implementation } = await load()
-      for (const next of [
-        await implementationBoundTo(implementation.address, baseRegistrar.address),
-        await implementationBoundTo(controller.address, alice.address),
-      ]) {
-        await expect(
-          namePolicy.write.upgradeTo([next.address], { account: owner }),
-        ).toBeRevertedWithCustomError('ImplementationMismatch')
-      }
     })
 
     it('an upgrade preserves the reserved and community lists, the terms and the acceptances', async () => {
@@ -194,7 +181,11 @@ describe('name policy', () => {
         controller.address,
         baseRegistrar.address,
       )
-      await namePolicy.write.upgradeTo([next.address], { account: owner })
+      const proxyAdmin = await proxyAdminOf(connection, namePolicy.address)
+      await proxyAdmin.write.upgradeAndCall(
+        [namePolicy.address, next.address, '0x'],
+        { account: owner },
+      )
 
       expect(
         await namePolicy.read.reservedNames([labelhash('reservedname')]),
@@ -215,7 +206,7 @@ describe('name policy', () => {
       ).toBe(COMMUNITY_TERMS)
     })
 
-    it('the terms take slots 102, 106, 107 and 108 of the proxy', async () => {
+    it('the terms take slots 1, 5, 6 and 7 of the proxy', async () => {
       const { namePolicy } = await load()
       const slot = async (i: number) =>
         publicClient.getStorageAt({
@@ -224,10 +215,31 @@ describe('name policy', () => {
         })
       const longString = (link: string) =>
         pad(toHex(2n * BigInt(size(toHex(link))) + 1n))
-      expect(await slot(102)).toBe(COMMUNITY_TERMS)
-      expect(await slot(106)).toBe(longString(COMMUNITY_TERMS_LINK))
-      expect(await slot(107)).toBe(longString(GENERAL_TERMS_LINK))
-      expect(await slot(108)).toBe(GENERAL_TERMS)
+      expect(await slot(1)).toBe(COMMUNITY_TERMS)
+      expect(await slot(5)).toBe(longString(COMMUNITY_TERMS_LINK))
+      expect(await slot(6)).toBe(longString(GENERAL_TERMS_LINK))
+      expect(await slot(7)).toBe(GENERAL_TERMS)
+    })
+
+    it('renewal acceptances take slot 8 of the proxy', async () => {
+      const { namePolicy } = await load()
+      const id = BigInt(labelhash('heldname'))
+      await namePolicy.write.acceptGeneralTermsForRenewal(
+        [id, 0n, YEAR, GENERAL_TERMS],
+        { account: alice },
+      )
+      const entry = (key: `0x${string}`, slot: `0x${string}`) =>
+        keccak256(concat([key, slot]))
+      const slot = entry(
+        pad(toHex(YEAR)),
+        entry(
+          pad(toHex(0)),
+          entry(pad(alice.address), entry(pad(toHex(id)), pad(toHex(8)))),
+        ),
+      )
+      expect(
+        await publicClient.getStorageAt({ address: namePolicy.address, slot }),
+      ).toBe(GENERAL_TERMS)
     })
   })
 
@@ -343,9 +355,16 @@ describe('name policy', () => {
         })
       await expect(renew()).toBeRevertedWithCustomError('NameReserved')
 
-      const other = await policyWithNoReservations(f)
+      const other = await connection.viem.getContractAt(
+        'SimplexNamePolicy',
+        (await policyWithNoReservations(f)).address,
+      )
+      await other.write.setGeneralTerms([GENERAL_TERMS_LINK], { account: owner })
       await f.controller.write.setNamePolicy([other.address], {
         account: owner,
+      })
+      await acceptGeneralTermsForRenewal(connection, f.controller, 'heldname', YEAR, {
+        account: alice,
       })
       await renew()
     })

@@ -3,10 +3,12 @@ import { zeroAddress, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
   MIN_REGISTRATION,
+  passDisputePeriod,
   registerWithCredit,
   registration,
   sponsorOf,
@@ -92,18 +94,25 @@ describe('public sales switch', () => {
   it('renewal is exempt in both forms, so a pause never costs anyone a name', async () => {
     const { controller, sponsor } = await load()
     await creditedRegister(controller, 'renewany')
+    await passDisputePeriod(connection)
     expect(await controller.read.publicSalesOpen()).toBe(false)
 
+    const accept = () =>
+      acceptGeneralTermsForRenewal(connection, controller, 'renewany', YEAR, {
+        account: alice,
+      })
+    await accept()
     await controller.write.renew(['renewany', YEAR, zeroHash], {
       account: alice,
       value: YEAR_PRICE_USD,
     })
-    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash], {
+    await accept()
+    await sponsor.write.renewWithCredit(['renewany', YEAR, zeroHash, alice.address], {
       account: registrar,
     })
   })
 
-  it('is two-way before the freeze', async () => {
+  it('is two-way', async () => {
     const { controller } = await load()
     await controller.write.setPublicSalesOpen([true], { account: owner })
     expect(await controller.read.publicSalesOpen()).toBe(true)
@@ -124,21 +133,5 @@ describe('public sales switch', () => {
     await expect(
       controller.write.setPublicSalesOpen([true], { account: alice }),
     ).toBeRevertedWithCustomError('NotOwnerOrBeneficiary')
-  })
-
-  it('stops working at the freeze, locked in its current position', async () => {
-    const { controller } = await load()
-    await controller.write.setPublicSalesOpen([true], { account: owner })
-    await controller.write.freeze({ account: owner })
-
-    expect(await controller.read.publicSalesOpen()).toBe(true)
-    await expect(
-      controller.write.setPublicSalesOpen([false], { account: owner }),
-    ).toBeRevertedWithCustomError('Frozen')
-    await expect(
-      controller.write.setPublicSalesOpen([false], { account: guardian }),
-    ).toBeRevertedWithCustomError('Frozen')
-    // and sales keep working, which is the point of checking it before freezing
-    await payableRegister(controller, 'afterfrz')
   })
 })

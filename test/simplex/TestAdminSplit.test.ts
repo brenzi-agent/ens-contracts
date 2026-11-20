@@ -80,7 +80,7 @@ describe('admin split', () => {
       ).toBeRevertedWithCustomError('NotOwner')
     })
 
-    it('setDefaultResolver, setSponsor, setMinCharLength, setPriceOracle, freeze', async () => {
+    it('setDefaultResolver, setSponsor, setMinCharLength, setPriceOracle', async () => {
       const { controller, dummyOracle } = await load()
       await expect(
         controller.write.setDefaultResolver([alice.address], {
@@ -101,9 +101,6 @@ describe('admin split', () => {
         controller.write.setPriceOracle([oracle.address], {
           account: guardian,
         }),
-      ).toBeRevertedWithString(OWNABLE)
-      await expect(
-        controller.write.freeze({ account: guardian }),
       ).toBeRevertedWithString(OWNABLE)
     })
   })

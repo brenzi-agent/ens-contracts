@@ -3,8 +3,10 @@ import { labelhash, zeroAddress as zeroAddressLocal, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
+  deployBehindProxy,
   deployNamesV2,
   MIN_REGISTRATION,
   node,
@@ -232,7 +234,10 @@ describe('renewal and availability semantics', () => {
     await connection.networkHelpers.time.increase(Number(MIN_REGISTRATION + 1n))
 
     const before = await sponsor.read.registrarAllowance([registrar.address])
-    await sponsor.write.renewWithCredit(['renewprem', YEAR, zeroHash], {
+    await acceptGeneralTermsForRenewal(connection, controller, 'renewprem', YEAR, {
+      account: victim,
+    })
+    await sponsor.write.renewWithCredit(['renewprem', YEAR, zeroHash, victim.address], {
       account: registrar,
     })
     const spent =
@@ -255,12 +260,13 @@ describe('renewal and availability semantics', () => {
 
   it('initialize refuses a zero commitment age', async () => {
     const { baseRegistrar, priceOracle, ens } = await load()
-    const { encodeFunctionData, namehash, zeroAddress } = await import('viem')
-    const impl = await connection.viem.deployContract('SimplexController', [])
-    const initData = encodeFunctionData({
-      abi: impl.abi,
-      functionName: 'initialize',
-      args: [
+    const { namehash, toFunctionSelector, zeroAddress } = await import('viem')
+    const reverted = await deployBehindProxy(
+      connection,
+      'SimplexController',
+      [],
+      owner.address,
+      [
         baseRegistrar.address,
         priceOracle.address,
         0n,
@@ -275,12 +281,9 @@ describe('renewal and availability semantics', () => {
         },
         owner.address,
       ],
-    })
-    await expect(
-      connection.viem.deployContract('SimplexControllerProxy', [
-        impl.address,
-        initData,
-      ]),
-    ).rejects.toThrow()
+    ).catch((error) => error.walk())
+    expect(reverted.data?.data ?? reverted.data).toBe(
+      toFunctionSelector('MinCommitmentAgeZero()'),
+    )
   })
 })

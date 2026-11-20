@@ -3,9 +3,12 @@ import { labelhash, zeroHash } from 'viem'
 import { describe, expect, it } from 'vitest'
 
 import {
+  acceptGeneralTermsForRenewal,
   AMPLE_ALLOWANCE,
   commitUnderGeneralTerms,
   deployNamesV2,
+  MIN_DISPUTE_DAYS,
+  passDisputePeriod,
   registerWithCredit,
   registration,
   signRegistration,
@@ -14,6 +17,7 @@ import {
   YEAR_PRICE_USD,
   yearPriceUSD,
 } from './fixtures/namesV2.js'
+import { DAY } from '../fixtures/constants.js'
 
 const connection = await hre.network.connect()
 const publicClient = await connection.viem.getPublicClient()
@@ -260,13 +264,17 @@ describe('registrar allowance', () => {
       { account: guardian },
     )
     await sponsoredRegister(controller, registration('renewable', alice.address))
+    await passDisputePeriod(connection)
     const afterRegister = await sponsor.read.registrarAllowance([
       registrar.address,
     ])
 
     const tokenId = BigInt(labelhash('renewable'))
     const before = await baseRegistrar.read.nameExpires([tokenId])
-    await sponsor.write.renewWithCredit(['renewable', YEAR, zeroHash], {
+    await acceptGeneralTermsForRenewal(connection, controller, 'renewable', YEAR, {
+      account: alice,
+    })
+    await sponsor.write.renewWithCredit(['renewable', YEAR, zeroHash, alice.address], {
       account: registrar,
     })
 
@@ -309,11 +317,19 @@ describe('registrar allowance', () => {
       { account: guardian },
     )
     await sponsoredRegister(controller, registration('decade', alice.address))
-    await sponsor.write.renewWithCredit(['decade', 9n * YEAR, zeroHash], {
+    await passDisputePeriod(connection)
+    const longest = 9n * YEAR + MIN_DISPUTE_DAYS * DAY
+    await acceptGeneralTermsForRenewal(connection, controller, 'decade', longest, {
+      account: alice,
+    })
+    await sponsor.write.renewWithCredit(['decade', longest, zeroHash, alice.address], {
       account: registrar,
     })
+    await acceptGeneralTermsForRenewal(connection, controller, 'decade', YEAR, {
+      account: alice,
+    })
     await expect(
-      sponsor.write.renewWithCredit(['decade', YEAR, zeroHash], {
+      sponsor.write.renewWithCredit(['decade', YEAR, zeroHash, alice.address], {
         account: registrar,
       }),
     ).toBeRevertedWithCustomErrorFrom(controller, 'DurationTooLong')
