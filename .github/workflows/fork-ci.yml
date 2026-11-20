@@ -25,7 +25,7 @@ jobs:
 
       - name: Contract sizes
         run: |
-          for c in registry/ENSRegistry ethregistrar/BaseRegistrarImplementation simplex/SimplexResolver simplex/SubnameRegistrar simplex/SimplexController simplex/SimplexNamePolicy simplex/SimplexSponsor; do
+          for c in registry/ENSRegistry ethregistrar/BaseRegistrarImplementation simplex/SimplexResolver simplex/SubnameRegistrar simplex/SimplexController simplex/SimplexNamePolicy simplex/SimplexSponsor universalResolver/UniversalResolver; do
             node -e 'const a=require(process.argv[1]); console.log(process.argv[2], (a.deployedBytecode.length-2)/2)' "./artifacts/contracts/$c.sol/$(basename $c).json" "$(basename $c)"
           done
           for c in TransparentUpgradeableProxy ProxyAdmin; do
@@ -69,12 +69,13 @@ jobs:
 
       - run: pnpm exec hardhat compile
 
-      - name: Type-check of namesV2.ts and TestUpgradeableStack.test.ts, failing on their errors only, since files they import fail on the base too
+      - name: Type-check of namesV2.ts, TestUpgradeableStack and TestLaunchLifecycle, failing on their errors and on tsc's own, except the lifecycle's matcher calls on any-typed contracts and errors in files they import, which fail on the base too
         run: |
-          echo '{"extends":"./tsconfig.json","include":["./test/simplex/fixtures/namesV2.ts","./test/simplex/TestUpgradeableStack.test.ts","./test/setup.ts","./typings-custom/**/*.ts","./artifacts/**/*.d.ts","./artifacts/node_modules/**/*.d.ts"]}' > tsconfig.tests.json
+          echo '{"extends":"./tsconfig.json","include":["./test/simplex/fixtures/namesV2.ts","./test/simplex/TestUpgradeableStack.test.ts","./test/simplex/TestLaunchLifecycle.test.ts","./test/setup.ts","./typings-custom/**/*.ts","./artifacts/**/*.d.ts","./artifacts/node_modules/**/*.d.ts"]}' > tsconfig.tests.json
           pnpm exec tsc --noEmit -p tsconfig.tests.json > tsc.log 2>&1 || true
           cat tsc.log
-          ! grep -E '_tsc\.js|^test/simplex/(fixtures/namesV2|TestUpgradeableStack\.test)\.ts\(' tsc.log
+          if grep -E '_tsc\.js|^error TS|^tsconfig|^test/simplex/(fixtures/namesV2|TestUpgradeableStack\.test)\.ts\(' tsc.log; then exit 1; fi
+          if grep -E '^test/simplex/TestLaunchLifecycle\.test\.ts\(' tsc.log | grep -v "on type 'Assertion<any>'"; then exit 1; fi
 
   layout-snapshot:
     runs-on: ubuntu-latest
