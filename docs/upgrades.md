@@ -198,7 +198,7 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    each `*_TYPEHASH`, and each function called from outside the stack are
    part of the interface. Their signers and callers are the names service, the
    webstore, each SimpleX app version in use, the dApp, the resolver service
-   (`snrc-resolve.py`), `ens-metadata-service`, ERC-721 wallets and
+   (`snrc-resolve.py`), ERC-721 wallets and
    marketplaces, and `UniversalResolver` integrators. A changed intent or replaced
    function is added beside the current one where accepting the current one
    stays safe, and the current one is dropped through `INTENDED` after every
