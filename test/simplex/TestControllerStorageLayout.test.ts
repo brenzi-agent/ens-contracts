@@ -42,8 +42,8 @@ function changed(before: string[], after: string[]) {
 /**
  * The controller is upgradeable until its ProxyAdmin is renounced, so its
  * storage must stay append-only and the new governance state must pack as
- * designed: defaultResolver with publicSalesOpen. These assertions are what
- * catch a reordering that would silently corrupt a live proxy.
+ * designed: defaultResolver with publicSalesOpen. A reordering that would
+ * silently corrupt a live proxy is detected by these assertions.
  */
 describe('controller storage layout', () => {
   it('the beneficiary sits in its own slot', async () => {

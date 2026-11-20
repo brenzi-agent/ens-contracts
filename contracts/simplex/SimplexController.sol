@@ -57,7 +57,7 @@ contract SimplexController is
     uint256 private constant _ENTERED = 2;
 
     // Was immutable in the non-upgradeable version. Converted to plain
-    // storage so values survive an upgrade rather than being baked
+    // storage so values are kept across an upgrade rather than being baked
     // into each implementation's bytecode.
     ENS public ens;
     BaseRegistrarImplementation base;
