@@ -12,7 +12,7 @@ Each of these contracts is deployed behind its own OpenZeppelin 5.1.0
 - `SimplexSponsor`
 - `UniversalResolver`
 
-The `.testing` controller, a UUPS proxy, is upgraded under `docs/upgrades.md`
+The `.testing` controller, behind a UUPS proxy, is upgraded under `docs/upgrades.md`
 at tag `simplex-mainnet-testing-v3`, the source of its fixes.
 
 A `ProxyAdmin` of its own is created by each proxy's constructor; the address
@@ -33,7 +33,9 @@ contract until its `ProxyAdmin` is renounced. `renounceOwnership()` and
 proxy at nonce 1 that `scripts/prepare-upgrade.mjs` prints, never to the proxy:
 the same selectors are declared by `BaseRegistrarImplementation` and
 `SimplexController`, and a call of the `ProxyAdmin` owner to the proxy is
-delegated to them and applied to the contract's own ownership.
+delegated to them and applied to the contract's own ownership. A freeze is
+refused by `scripts/prepare-upgrade.mjs` until GOV8 has moved the `ProxyAdmin`
+to the timelock (launch-to-freeze plan, A7), and prepared after it.
 
 ```mermaid
 flowchart LR
@@ -148,11 +150,12 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    variables; a variable packed into the unused bytes of the preceding slot
    counts as zero whole slots, so `__gap` is unchanged by a `bool` after
    `SimplexController.namePolicy` (slot 169, offset 20). In a contract without
-   `__gap`, a new variable is declared after the last one. Only the most
-   derived contract gains variables: every variable declared after one added
-   to a base contract is moved, as `PublicResolver` or one of its profiles can
-   gain one in a merge from upstream ENS, and `ERC721`, `ERC721Enumerable` or
-   `Ownable` in an upgrade of the OpenZeppelin dependency.
+   `__gap`, a new variable is declared after the last one. Variables are added
+   to the most derived contract only: every variable declared after one added
+   to a base contract is moved, and a variable can be added to `PublicResolver`
+   or one of its profiles in a merge from upstream ENS, and to `ERC721`,
+   `ERC721Enumerable` or `Ownable` in an upgrade of the OpenZeppelin
+   dependency.
 2. **The label, slot, offset and type of an existing variable are unchanged.**
    Never reorder, remove, rename or retype one. The members of a stored struct
    are unchanged, and values are only appended to an enum.
@@ -181,18 +184,21 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    immutables in place, except `SimplexNamePolicy._self`,
    `SubnameRegistrar._deployer` and `_proxyAdmin`, which are expected to hold
    the candidate's own address, its deployer and the proxy's `ProxyAdmin`.
-5. **Every external function and event of the current implementation is kept**
-   by a candidate, with the same selector, return types, mutability and event
-   indexing, and the same meaning, unless removing one is the purpose of the
-   upgrade and the `INTENDED` input of
+5. **Every external function, event and custom error of the current
+   implementation is kept** by a candidate, with the same selector, return
+   types, mutability and event indexing, and the same meaning, unless
+   removing one is the purpose of the upgrade and the `INTENDED` input of
    `scripts/prepare-upgrade.mjs` names it; a candidate without a selector or
    an event topic of the current implementation that `INTENDED` does not name
-   is refused by the script. The functions below are called by other
-   contracts of the stack, so once a caller is frozen or immutable, these
-   functions are a fixed interface. The EIP-712 domain name and version, each
-   `*_TYPEHASH`, and each function called from outside the stack are part of
-   the interface. Their signers and callers are the names service, the
-   webstore and each SimpleX app version in use. A changed intent or replaced
+   is refused by the script. Custom errors are part of the interface because
+   off-chain callers decode them: on a `TermsNotAccepted` revert, the names
+   service reads the name policy again. The functions below are called by
+   other contracts of the stack, so once a caller is frozen or immutable,
+   these functions are a fixed interface. The EIP-712 domain name and version,
+   each `*_TYPEHASH`, and each function called from outside the stack are
+   part of the interface. Their signers and callers are the names service, the
+   webstore, each SimpleX app version in use, the dApp, ERC-721 wallets and
+   marketplaces, and `UniversalResolver` integrators. A changed intent or replaced
    function is added beside the current one where accepting the current one
    stays safe, and the current one is dropped through `INTENDED` after every
    signer and caller uses the successor. Where accepting the current one after
@@ -230,6 +236,18 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
 stack. `registerSponsored` and `renewSponsored` of `SimplexController` revert
 for any caller other than the address in its `sponsor`, the sponsor's proxy,
 which is unchanged by an upgrade of the sponsor.
+
+The eight also call contracts outside them:
+
+| Called contract | Caller | Functions | Replaced by |
+|---|---|---|---|
+| `MetadataRenderer` | `BaseRegistrarImplementation` | `tokenURI` | `setMetadataRenderer` |
+| the price oracle | `SimplexController` | `price`, `priceUSD` | `setPriceOracle` |
+| the NFT of the gate, with the gate on | `SimplexController` | `balanceOf` | – |
+| the gateway provider | `UniversalResolver` | `gateways` | an upgrade whose `INTENDED` names `batchGatewayProvider` |
+
+With an upgraded caller, their interface is kept, or a new instance is set as
+the last column names.
 
 ### Adding a variable — example
 
@@ -283,13 +301,15 @@ it is moved and `__gap` is untouched.
       255 is refused by `scripts/prepare-upgrade.mjs`. `constant` and `immutable`
       values are exempt (invariant 4). The function passed as `data` runs with
       the `ProxyAdmin` as `msg.sender`: an
-      `onlyOwner` function reverts there, the `ProxyAdmin` is recorded as the
-      caller wherever one is recorded, and with `SimplexResolver.multicall` as
-      `data`,
-      `upgradeAndCall` reverts `FailedCall()`: each `delegatecall` of
-      `multicall` to `address(this)` is executed by the proxy's code with the
-      same `msg.sender` and reverts `ProxyDeniedAdminAccess`, an error discarded
-      by `require(success)`.
+      `onlyOwner` function reverts there, and the `ProxyAdmin` is recorded as
+      the caller wherever one is recorded. With `SimplexResolver.multicall` as
+      `data`, each entry is executed by a `delegatecall` to `address(this)`,
+      that is by the proxy's own code with the `ProxyAdmin` as `msg.sender`: an
+      entry with the selector of `upgradeToAndCall` is executed as a nested
+      upgrade, by which its own implementation is installed in place of the
+      candidate (`TestUpgradeableStack.test.ts` shows it), and any other entry
+      reverts `ProxyDeniedAdminAccess`, discarded by `require(success)`, so
+      that `upgradeAndCall` reverts `FailedCall()`. Such `data` is prohibited.
 - [ ] **Review the new immutables.** A new immutable is assigned from
       constructor arguments only: at construction, `address(this)` is the
       implementation and `msg.sender` its deployer, so a domain separator or an
@@ -302,7 +322,8 @@ it is moved and `__gap` is untouched.
       implementation as the constructor input `proxyAdmin`; with an input
       named `_proxyAdmin`, the immutable is shadowed and left zero. In
       `ENSRegistry`, `BaseRegistrarImplementation` and `SimplexController` it is
-      also a `reinitializer(n)`. By `scripts/prepare-upgrade.mjs`, the proxy's
+      also a `reinitializer(n)`. No `delegatecall` to `address(this)` is made
+      by the function. By `scripts/prepare-upgrade.mjs`, the proxy's
       `ProxyAdmin` is passed automatically to a constructor input named
       `proxyAdmin`, the immutable `_proxyAdmin` is checked against that
       `ProxyAdmin`, a non-empty `data` for a candidate without a `_proxyAdmin`
@@ -312,17 +333,29 @@ it is moved and `__gap` is untouched.
       the function is safe to run twice; it is dropped from a later candidate
       only through `INTENDED` (invariant 5).
 - [ ] **Order upgrades whose interfaces change together.** An upgrade whose
-      new code calls a function that another contract of the stack gains in
-      its own upgrade is sent after that upgrade, or with it in one Safe
-      MultiSend batch; one `upgradeAndCall` at a time is simulated by
-      `scripts/prepare-upgrade.mjs`. An upgrade that drops, through
-      `INTENDED`, a function that the current code of another contract of the
-      stack calls is sent after that contract's upgrade, or with it in one Safe
-      MultiSend batch. A changed signature is a dropped and a gained function
+      new code calls a function added to another contract of the stack in
+      that contract's own upgrade is sent after that upgrade, or with it in one
+      Safe MultiSend batch; one `upgradeAndCall` at a time is simulated by
+      `scripts/prepare-upgrade.mjs`. An upgrade in which a function called by
+      the current code of another contract of the stack is dropped through
+      `INTENDED` is sent after that contract's upgrade, or with it in one Safe
+      MultiSend batch. A changed signature is a dropped and an added function
       at once, so the upgrades of the contract and of its callers are sent in
-      one batch, simulated on a mainnet fork before it is proposed. A function
-      that the names service or the dApp calls is dropped only after they call
-      its successor.
+      one batch, simulated on a mainnet fork before it is proposed. Such a
+      batch is prepared by the batch extension of `scripts/prepare-upgrade.mjs`
+      delivered with the tooling of #49 (brenzi/simplex-namespace-contract#18):
+      each candidate is prepared, the Safe MultiSend is assembled and simulated
+      on a mainnet fork with the admin Safe impersonated, and each
+      implementation slot is compared with its candidate. A function that the
+      names service or the dApp calls is dropped only after they call its
+      successor.
+- [ ] **Keep the EIP-712 pin tests.** The six domains are pinned by
+      `TestEip712Domains.test.ts`, and the twelve `*_TYPEHASH` values by
+      `TestApproveAllWithSig`, `TestApproveClaimWithSig`,
+      `TestClearRecordsWithSig`, `TestCommunityTerms`,
+      `TestCreateSubnameWithSig`, `TestRecipientConsent` and
+      `TestSimplexResolver`; these tests are changed only when the upgrade's
+      plan names the intent change.
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. Every upgrade through a renounced `ProxyAdmin`,
       whose owner is `0x0`, reverts.
