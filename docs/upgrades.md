@@ -285,7 +285,10 @@ it is moved and `__gap` is untouched.
       `proxyAdmin`, checks the immutable `_proxyAdmin` against that
       `ProxyAdmin`, refuses a non-empty `data` for a candidate without a
       `_proxyAdmin` immutable, refuses code that contains an ERC-1967 slot,
-      encodes the `data`, and simulates the upgrade.
+      encodes the `data`, and simulates the upgrade. Outside
+      `reinitializer(n)`, the guard admits the function again in any later
+      `upgradeAndCall` of the same proxy, so it is safe to run twice; a later
+      candidate drops it only through `INTENDED` (invariant 5).
 - [ ] Confirm that `owner()` of the proxy's `ProxyAdmin` is the intended admin
       before the upgrade tx. A renounced `ProxyAdmin`, whose owner is `0x0`,
       refuses every upgrade.
