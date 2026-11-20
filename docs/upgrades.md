@@ -152,11 +152,10 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    counts as zero whole slots, so `__gap` is unchanged by a `bool` after
    `SimplexController.namePolicy` (slot 169, offset 20). In a contract without
    `__gap`, a new variable is declared after the last one. Variables are added
-   to the most derived contract only: every variable declared after one added
-   to a base contract is moved, and a variable can be added to `PublicResolver`
-   or one of its profiles in a merge from upstream ENS, and to `ERC721`,
-   `ERC721Enumerable` or `Ownable` in an upgrade of the OpenZeppelin
-   dependency.
+   to the most derived contract only: a merge from upstream ENS that adds a
+   variable to `PublicResolver` or a profile, or an OpenZeppelin upgrade that
+   adds one to `ERC721`, `ERC721Enumerable` or `Ownable`, moves every variable
+   after it and is refused (invariant 2).
 2. **The label, slot, offset and type of an existing variable are unchanged.**
    Never reorder, remove, rename or retype one. The members of a stored struct
    are unchanged, and values are only appended to an enum.
@@ -248,8 +247,8 @@ The eight also call contracts outside them:
 | the NFT of the gate, with the gate on | `SimplexController` | `balanceOf` | – |
 | the gateway provider | `UniversalResolver` | `gateways` | an upgrade whose `INTENDED` names `batchGatewayProvider` |
 
-With an upgraded caller, their interface is kept, or a new instance is set as
-the last column names.
+With an upgraded caller, their interface is kept, or the instance named in the
+last column is set.
 
 ### Adding a variable — example
 
@@ -310,7 +309,7 @@ it is moved and `__gap` is untouched.
       own code with the `ProxyAdmin` as `msg.sender`: an entry with the
       selector of `upgradeToAndCall` is executed as a nested upgrade, by which
       its own implementation is installed in place of the candidate
-      (`TestUpgradeableStack.test.ts` shows it for both), and any other entry
+      (demonstrated for both in `TestUpgradeableStack.test.ts`), and any other entry
       reverts `ProxyDeniedAdminAccess`, discarded by `require(success)`, so
       that `upgradeAndCall` reverts `FailedCall()`. Any function that makes a
       `delegatecall` to `address(this)` is prohibited as `data`.
@@ -334,8 +333,9 @@ it is moved and `__gap` is untouched.
       immutable and code that contains an ERC-1967 slot are refused, the `data`
       is encoded, and the upgrade is simulated. Outside `reinitializer(n)`, the
       guard is passed again in any later `upgradeAndCall` of the same proxy, so
-      the function is safe to run twice; it is dropped from a later candidate
-      only through `INTENDED` (invariant 5).
+      a function passed as `data` without `reinitializer(n)` is written so that
+      a second run changes nothing; it is dropped from a later candidate only
+      through `INTENDED` (invariant 5).
 - [ ] **Order upgrades whose interfaces change together.** An upgrade whose
       new code calls a function added to another contract of the stack in
       that contract's own upgrade is sent after that upgrade, or with it in one
