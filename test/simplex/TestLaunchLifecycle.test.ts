@@ -23,6 +23,7 @@ import {
   implementationOf,
   type InitializeParameters,
   MIN_REGISTRATION,
+  passDisputePeriod,
   PRICE_BASE,
   PRICE_EXCEPTIONS,
   registerWithCredit,
@@ -743,6 +744,7 @@ describe('launch lifecycle', () => {
       const allowanceBefore = await sponsor.read.registrarAllowance([
         registrar.address,
       ])
+      await passDisputePeriod(connection)
       await sponsor.write.renewWithCredit([OWNED, YEAR, zeroHash], {
         account: registrar,
       })

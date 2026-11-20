@@ -34,7 +34,8 @@
     "18:0+32 BaseRegistrarImplementation.baseNode bytes32",
     "19:0+32 BaseRegistrarImplementation.controllers mapping(address => bool)",
     "20:0+32 BaseRegistrarImplementation.nonces mapping(address => uint256)",
-    "21:0+32 BaseRegistrarImplementation.offers mapping(uint256 => uint256)"
+    "21:0+32 BaseRegistrarImplementation.offers mapping(uint256 => uint256)",
+    "22:0+32 BaseRegistrarImplementation.disputeUntil mapping(uint256 => uint256)"
   ],
   "SimplexResolver": [
     "0:0+32 ResolverBase.recordVersions mapping(bytes32 => uint64)",

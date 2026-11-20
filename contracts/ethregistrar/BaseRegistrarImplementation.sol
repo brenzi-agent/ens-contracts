@@ -21,7 +21,8 @@ interface ISubnameHook {
 /// @dev INVARIANT (ERC721Enumerable): enumeration (`totalSupply`,
 ///      `tokenByIndex`, `balanceOf`, `tokenOfOwnerByIndex`) is maintained on
 ///      transfer/mint/burn, NOT on expiry — a name is only burned when it is
-///      re-registered after its grace period. So enumeration includes
+///      re-registered after its grace period or its unregistration.
+///      So enumeration includes
 ///      expired-but-unburned names and can disagree with the grace-period
 ///      `ownerOf` (which reverts once expired). Readers MUST filter by
 ///      `nameExpires(id) > block.timestamp` to get the live set.
@@ -60,9 +61,13 @@ contract BaseRegistrarImplementation is
     event MaxLabelLengthChanged(uint256 maxLabelLength);
     event SubnameHookChanged(address indexed hook);
     event NamePolicyChanged(address indexed namePolicy);
+    event NameUnregistered(uint256 indexed id);
 
     error LabelTooLong(uint256 length, uint256 max);
     error NamePolicyMismatch();
+    error DisputePeriodOver(uint256 id);
+    error DisputePeriodNotOver(uint256 id);
+    error DisputeUntilMismatch(uint256 named, uint256 current);
 
     /// v2.1.3 version of _isApprovedOrOwner which calls ownerOf(tokenId) and takes grace period into consideration instead of ERC721.ownerOf(tokenId);
     /// https://github.com/OpenZeppelin/openzeppelin-contracts/blob/v2.1.3/contracts/token/ERC721/ERC721.sol#L187
@@ -164,7 +169,8 @@ contract BaseRegistrarImplementation is
     function registerWithLabel(
         string calldata label,
         address owner,
-        uint256 duration
+        uint256 duration,
+        uint256 disputePeriod
     ) external returns (uint256) {
         if (maxLabelLength != 0 && bytes(label).length > maxLabelLength)
             revert LabelTooLong(bytes(label).length, maxLabelLength);
@@ -172,6 +178,9 @@ contract BaseRegistrarImplementation is
         if (bytes(labelOf[id]).length == 0) {
             labelOf[id] = label;
         }
+        disputeUntil[id] = disputePeriod == 0
+            ? 0
+            : block.timestamp + disputePeriod;
         return _register(id, owner, duration);
     }
 
@@ -223,6 +232,7 @@ contract BaseRegistrarImplementation is
         uint256 id,
         uint256 duration
     ) external override live onlyController returns (uint256) {
+        if (block.timestamp < disputeUntil[id]) revert DisputePeriodNotOver(id);
         require(expiries[id] + GRACE_PERIOD >= block.timestamp); // Name must be registered here or in grace period
         require(
             expiries[id] + duration + GRACE_PERIOD > duration + GRACE_PERIOD
@@ -237,6 +247,25 @@ contract BaseRegistrarImplementation is
         }
         emit NameRenewed(id, expiries[id]);
         return expiries[id];
+    }
+
+    function unregister(
+        uint256 id,
+        uint256 until
+    ) external live onlyController {
+        if (disputeUntil[id] != until)
+            revert DisputeUntilMismatch(until, disputeUntil[id]);
+        if (block.timestamp >= disputeUntil[id]) revert DisputePeriodOver(id);
+        delete disputeUntil[id];
+        expiries[id] = 0;
+        ens.setSubnodeRecord(baseNode, bytes32(id), address(0), address(0), 0);
+        if (subnameHook != address(0)) {
+            ISubnameHook(subnameHook).onExpiryChanged(
+                keccak256(abi.encodePacked(baseNode, bytes32(id))),
+                0
+            );
+        }
+        emit NameUnregistered(id);
     }
 
     /// @dev Reclaim ownership of a name in ENS, if you own it in the registrar.
@@ -342,6 +371,8 @@ contract BaseRegistrarImplementation is
     /// @dev The number of the current offer for each token, incremented by every
     ///      `approve`, so a claim signature is valid for one offer and no later one.
     mapping(uint256 => uint256) public offers;
+
+    mapping(uint256 => uint256) public disputeUntil;
 
     /// @dev ERC-5564 `Announcement`, verbatim in name, parameter list and
     ///      indexing, so any indexer that knows the standard decodes ours by

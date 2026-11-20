@@ -184,7 +184,7 @@ contract SimplexNamePolicy is INamePolicy {
         emit ReservedNameRemoved(label);
 
         bytes32 namehash = keccak256(abi.encodePacked(_tldNode, labelhash));
-        registrar.registerWithLabel(label, address(this), duration);
+        registrar.registerWithLabel(label, address(this), duration, 0);
         _retireStaleRecords(namehash);
         address resolver = controller.defaultResolver();
         if (resolver != address(0))

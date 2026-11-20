@@ -472,6 +472,7 @@ export const eip712Types = {
     { name: 'duration', type: 'uint256' },
     { name: 'resolver', type: 'address' },
     { name: 'data', type: 'bytes[]' },
+    { name: 'disputeDays', type: 'uint256' },
     { name: 'nonce', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
   ],
@@ -512,6 +513,11 @@ export const eip712Types = {
 } as const
 
 export const FAR_FUTURE = 4102444800n
+
+export const MIN_DISPUTE_DAYS = 14n
+
+export const passDisputePeriod = (connection: NetworkConnection) =>
+  connection.networkHelpers.time.increase(MIN_DISPUTE_DAYS * DAY)
 
 /** Sign one of the intents above against `verifyingContract`. */
 export async function signIntent(
@@ -565,8 +571,12 @@ export async function signRegistration<
   connection: NetworkConnection,
   sponsor: any,
   reg: R,
-  { signer, deadline = FAR_FUTURE }: { signer?: any; deadline?: bigint } = {},
-): Promise<[R, bigint, bigint, `0x${string}`]> {
+  {
+    signer,
+    deadline = FAR_FUTURE,
+    disputeDays = MIN_DISPUTE_DAYS,
+  }: { signer?: any; deadline?: bigint; disputeDays?: bigint } = {},
+): Promise<[R, bigint, bigint, bigint, `0x${string}`]> {
   const client =
     signer ??
     (await connection.viem.getWalletClients()).find(
@@ -586,11 +596,12 @@ export async function signRegistration<
       duration: reg.duration,
       resolver: reg.resolver,
       data: reg.data,
+      disputeDays,
       nonce,
       deadline,
     },
   )
-  return [reg, nonce, deadline, sig]
+  return [reg, disputeDays, nonce, deadline, sig]
 }
 
 /** `sponsor.registerWithCredit` for `reg`, signed by its owner. */

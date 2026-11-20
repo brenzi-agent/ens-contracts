@@ -21,7 +21,7 @@ contract SimplexSponsor {
     bytes32 private constant _EIP712_VERSION = keccak256("1");
     bytes32 public constant REGISTER_TYPEHASH =
         keccak256(
-            "RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 nonce,uint256 deadline)"
+            "RegisterName(string label,address owner,uint256 duration,address resolver,bytes[] data,uint256 disputeDays,uint256 nonce,uint256 deadline)"
         );
 
     SimplexController public immutable controller;
@@ -67,22 +67,23 @@ contract SimplexSponsor {
     /// @notice Register with no value attached, spending the name's list price
     ///         from the caller's allowance.
     /// @param sig The owner's EIP-712 `RegisterName` signature, which covers the
-    ///        label, the duration, the resolver and `data`, not the secret or referrer.
+    ///        label, the duration, the resolver, `data` and `disputeDays`, not the secret or referrer.
     ///        Not checked when the owner is the caller.
     function registerWithCredit(
         IETHRegistrarController.Registration calldata registration,
+        uint256 disputeDays,
         uint256 nonce,
         uint256 deadline,
         bytes calldata sig
     ) external {
         if (registration.owner != msg.sender)
-            _consumeIntent(registration, nonce, deadline, sig);
+            _consumeIntent(registration, disputeDays, nonce, deadline, sig);
         IPriceOracle.Price memory usd = controller.rentPriceUSD(
             registration.label,
             registration.duration
         );
         _spendAllowance(usd.base + usd.premium);
-        controller.registerSponsored(registration);
+        controller.registerSponsored(registration, disputeDays);
     }
 
     /// @notice Renew with no value attached, spending the name's list price
@@ -130,6 +131,7 @@ contract SimplexSponsor {
     /// @dev Verify the owner's signature, then spend the nonce.
     function _consumeIntent(
         IETHRegistrarController.Registration calldata registration,
+        uint256 disputeDays,
         uint256 nonce,
         uint256 deadline,
         bytes calldata sig
@@ -153,6 +155,7 @@ contract SimplexSponsor {
                         registration.duration,
                         registration.resolver,
                         keccak256(abi.encodePacked(dataHashes)),
+                        disputeDays,
                         nonce,
                         deadline
                     )

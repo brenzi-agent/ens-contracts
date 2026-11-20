@@ -7,6 +7,7 @@ import {
   commitUnderGeneralTerms,
   deployNamesV2,
   MIN_REGISTRATION,
+  passDisputePeriod,
   registerWithCredit,
   registration,
   sponsorOf,
@@ -92,6 +93,7 @@ describe('public sales switch', () => {
   it('renewal is exempt in both forms, so a pause never costs anyone a name', async () => {
     const { controller, sponsor } = await load()
     await creditedRegister(controller, 'renewany')
+    await passDisputePeriod(connection)
     expect(await controller.read.publicSalesOpen()).toBe(false)
 
     await controller.write.renew(['renewany', YEAR, zeroHash], {

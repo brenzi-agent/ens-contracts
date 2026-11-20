@@ -220,7 +220,7 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
 | `ENSRegistry` | `SimplexResolver` | `owner` |
 | `ENSRegistry` | `Root` | `setSubnodeOwner`, `setResolver` |
 | `ENSRegistry` | `UniversalResolver` | `resolver` |
-| `BaseRegistrarImplementation` | `SimplexController` | `available`, `nameExpires`, `registerWithLabel`, `renew`, `transferFrom` |
+| `BaseRegistrarImplementation` | `SimplexController` | `available`, `nameExpires`, `registerWithLabel`, `renew`, `transferFrom`, `unregister` |
 | `BaseRegistrarImplementation` | `SimplexNamePolicy` | `available`, `registerWithLabel`, `transferFrom` |
 | `SimplexController` | `SimplexNamePolicy` | `owner`, `beneficiary`, `defaultResolver`, `wasDefaultResolver`, `commitments`, `maxCommitmentAge`, `commit`; `ens` and `tldNode` in its constructor |
 | `SimplexController` | `SimplexSponsor` | `beneficiary`, `rentPriceUSD`, `registerSponsored`, `renewSponsored` |
