@@ -56,9 +56,12 @@ async function fixture() {
   await f.baseRegistrar.write.addController([controller.address])
   await controller.write.setBeneficiary([guardian.address], { account: owner })
   await controller.write.setPublicSalesOpen([true], { account: owner })
-  const sponsor = await connection.viem.deployContract('SimplexSponsor', [
-    controller.address,
-  ])
+  const { contract: sponsor } = await deployBehindProxy(
+    connection,
+    'SimplexSponsor',
+    [controller.address],
+    owner.address,
+  )
   await controller.write.setSponsor([sponsor.address], { account: owner })
   await sponsor.write.setRegistrarAllowance(
     [registrar.address, AMPLE_ALLOWANCE],

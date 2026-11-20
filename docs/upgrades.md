@@ -9,6 +9,8 @@ Each of these contracts is deployed behind its own OpenZeppelin 5.1.0
 - `SubnameRegistrar`
 - `SimplexController`
 - `SimplexNamePolicy`
+- `SimplexSponsor`
+- `UniversalResolver`
 
 The `.testing` controller, a UUPS proxy, is upgraded under `docs/upgrades.md`
 at tag `simplex-mainnet-testing-v3`, the source of its fixes.
@@ -54,11 +56,11 @@ flowchart LR
   `ProxyAdmin` stays the only upgrade path.
 - An implementation must not write the ERC-1967 slots.
 - `test/simplex/__snapshots__/storageLayouts.json` records the storage layout
-  of the six implementations: one line per variable,
+  of the eight implementations: one line per variable,
   `slot:offset+bytes Contract.label type` with its declaring contract, and
   below it one indented line per struct member, `slot:offset+bytes label
   type`. `test/simplex/TestUpgradeableStack.test.ts` compares the compiled
-  layouts with it and checks the six ABIs for the selectors above. An upgrade
+  layouts with it and checks the eight ABIs for the selectors above. An upgrade
   that changes a layout updates the snapshot in the same commit
   (`vitest run -u test/simplex/TestUpgradeableStack.test.ts`), and its diff
   follows invariants 1 and 2: the lines of new variables are inserted before
@@ -80,8 +82,10 @@ start:
 | `SubnameRegistrar` | – | 0 | – |
 | `SimplexController` | 0-150: `Initializable`, `ContextUpgradeable`, `OwnableUpgradeable`, `Ownable2StepUpgradeable` | 151 | `uint256[43]` |
 | `SimplexNamePolicy` | – | 0 | `uint256[42]` |
+| `SimplexSponsor` | – | 0 | – |
+| `UniversalResolver` | – | – (no storage) | – |
 
-Each of the six is the most derived contract behind its proxy, so a contract
+Each of the eight is the most derived contract behind its proxy, so a contract
 without `__gap` appends after its last variable.
 
 ```
@@ -169,6 +173,9 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
    `trustedReverseRegistrar`) and of `SubnameRegistrar` (`ens`,
    `baseRegistrar`) determine who may write records; `SubnameRegistrar`'s
    `_deployer` is the only caller of its one-time `setResolver`.
+   `SimplexSponsor`'s `controller` binds it to one controller, and
+   `UniversalResolver`'s `registry`, `batchGatewayProvider` and
+   `unsafeCallGas` set the registry it reads and its batch gateways.
    `scripts/prepare-upgrade.mjs` in brenzi/simplex-namespace-contract compares
    the runtime code of a candidate with its artifact, with the current
    immutables in place.
@@ -203,6 +210,11 @@ declaration order, so reordering them swaps the two lists; keep them unchanged
 | `SimplexResolver` | `UniversalResolver` | `supportsInterface` and the resolver functions requested through it |
 | `SimplexNamePolicy` | `SimplexController` | `controller`, `isReserved`, `communityNames`, `consumeRegistration` |
 | `SimplexNamePolicy` | `BaseRegistrarImplementation` | `registrar`, `consumeTransfer` |
+
+No contract of the stack calls `SimplexSponsor` or `UniversalResolver`.
+`SimplexController` accepts `registerSponsored` and `renewSponsored` only from
+the address in its `sponsor`, the sponsor's proxy, which an upgrade of the
+sponsor leaves unchanged.
 
 ### Adding a variable — example
 
@@ -262,7 +274,7 @@ it is moved and `__gap` is untouched.
       owner derived from either is wrong under the proxy.
       `SimplexNamePolicy._self` and `SubnameRegistrar._deployer` hold the
       implementation and its deployer by design.
-- [ ] **Guard the function passed as `data`.** In each of the six contracts it
+- [ ] **Guard the function passed as `data`.** In each of the eight contracts it
       reverts unless `msg.sender` equals the immutable `_proxyAdmin`, the
       proxy's `ProxyAdmin` (its CREATE address at nonce 1), passed to the new
       implementation as the constructor input `proxyAdmin`; an input named
@@ -297,3 +309,24 @@ The policy compiles in the controller's `MIN_REGISTRATION`, `MAX_REGISTRATION` a
 `MAX_SPONSORED_REGISTRATION`, and reads the controller's `ens` and `tldNode` once,
 in its constructor. A controller upgrade that changed any of them needs a policy
 upgrade as well.
+
+## `SimplexSponsor`
+
+The sponsor (registrar allowances and `RegisterName` nonces) sits behind its own
+`TransparentUpgradeableProxy`. Its constructor assigns only the immutable
+`controller`, and it has no initializer; the function passed as `data` is
+guarded by `_proxyAdmin` alone. Its own variables are `registrarAllowance` and
+`nonces`, without a `__gap`; the invariants above apply to it unchanged. Its
+EIP-712 domain uses `address(this)`, the proxy, so `DOMAIN_SEPARATOR` and
+signed `RegisterName` intents are unchanged by an upgrade. A sponsor at another
+address is set with `setSponsor`, in the order of D20 of
+`docs/plans/upgradeable-stack.md` in brenzi/simplex-namespace-contract.
+
+## `UniversalResolver`
+
+The universal resolver sits behind its own `TransparentUpgradeableProxy`. Its
+constructor assigns only the immutables `registry`, `batchGatewayProvider` and
+`unsafeCallGas`, it has no initializer and no storage, and the function passed
+as `data` is guarded by `_proxyAdmin` alone. Its `OffchainLookup` names
+`address(this)`, the proxy, as the sender, so a client sends the CCIP-read
+callback to the proxy.
