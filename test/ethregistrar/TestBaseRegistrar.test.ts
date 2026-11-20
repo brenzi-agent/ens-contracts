@@ -166,10 +166,16 @@ describe('BaseRegistrar', () => {
   it('should permit the owner to transfer a registration', async () => {
     const { ensRegistry, baseRegistrar } = await loadFixtureWithRegistration()
 
+    await baseRegistrar.write.approve(
+      [otherAccount.address, toLabelId('newname')],
+      {
+        account: registrantAccount,
+      },
+    )
     await baseRegistrar.write.transferFrom(
       [registrantAccount.address, otherAccount.address, toLabelId('newname')],
       {
-        account: registrantAccount,
+        account: otherAccount,
       },
     )
 
@@ -178,12 +184,18 @@ describe('BaseRegistrar', () => {
     ).resolves.toEqualAddress(otherAccount.address)
     await expect(
       ensRegistry.read.owner([namehash('newname.eth')]),
-    ).resolves.toEqualAddress(registrantAccount.address)
+    ).resolves.toEqualAddress(otherAccount.address)
 
+    await baseRegistrar.write.approve(
+      [registrantAccount.address, toLabelId('newname')],
+      {
+        account: otherAccount,
+      },
+    )
     await baseRegistrar.write.transferFrom(
       [otherAccount.address, registrantAccount.address, toLabelId('newname')],
       {
-        account: otherAccount,
+        account: registrantAccount,
       },
     )
   })
