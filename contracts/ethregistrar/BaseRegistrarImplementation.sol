@@ -7,6 +7,7 @@ import "./IMetadataRenderer.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 
 /// @dev Notified when a 2LD is re-registered, so subname ownership/generation
 ///      state (kept by the SubnameRegistrar) can be invalidated. See
@@ -27,7 +28,8 @@ interface ISubnameHook {
 contract BaseRegistrarImplementation is
     ERC721Enumerable,
     IBaseRegistrar,
-    Ownable
+    Ownable,
+    Initializable
 {
     // A map of expiry times
     mapping(uint256 => uint256) expiries;
@@ -79,12 +81,28 @@ contract BaseRegistrarImplementation is
             isApprovedForAll(owner, spender));
     }
 
-    constructor(
-        ENS _ens,
-        bytes32 _baseNode
-    ) ERC721("SimpleX Names", "SIMPLEX") {
+    constructor(ENS _ens, bytes32 _baseNode) ERC721("", "") {
         ens = _ens;
         baseNode = _baseNode;
+        _disableInitializers();
+    }
+
+    function initialize(
+        ENS _ens,
+        bytes32 _baseNode,
+        address initialOwner
+    ) external initializer {
+        ens = _ens;
+        baseNode = _baseNode;
+        _transferOwnership(initialOwner);
+    }
+
+    function name() public pure override returns (string memory) {
+        return "SimpleX Names";
+    }
+
+    function symbol() public pure override returns (string memory) {
+        return "SIMPLEX";
     }
 
     modifier live() {
