@@ -10,7 +10,7 @@ import {
   zeroAddress,
   zeroHash,
 } from 'viem'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, expectTypeOf, it } from 'vitest'
 
 import { dnsEncodeName } from '../fixtures/dnsEncodeName.js'
 import {
@@ -21,6 +21,7 @@ import {
   deployNamesV2,
   FAR_FUTURE,
   implementationOf,
+  type InitializeParameters,
   MIN_REGISTRATION,
   node,
   proxyAdminOf,
@@ -650,6 +651,27 @@ describe('upgradeable stack', () => {
         ),
         await implementation('SimplexController', f.controller.address),
       )
+    })
+
+    it('deployBehindProxy requires initialize arguments exactly where the ABI declares initialize', () => {
+      expectTypeOf<InitializeParameters<'ENSRegistry'>>().toEqualTypeOf<
+        [readonly [`0x${string}`]]
+      >()
+      expectTypeOf<
+        InitializeParameters<'BaseRegistrarImplementation'>
+      >().toEqualTypeOf<[readonly [`0x${string}`, `0x${string}`, `0x${string}`]]>()
+      expectTypeOf<
+        InitializeParameters<'SimplexController'>
+      >().not.toEqualTypeOf<[]>()
+      expectTypeOf<InitializeParameters<'SimplexResolver'>>().toEqualTypeOf<[]>()
+      expectTypeOf<InitializeParameters<'SubnameRegistrar'>>().toEqualTypeOf<[]>()
+      expectTypeOf<InitializeParameters<'SimplexNamePolicy'>>().toEqualTypeOf<
+        []
+      >()
+      expectTypeOf<InitializeParameters<'SimplexSponsor'>>().toEqualTypeOf<[]>()
+      expectTypeOf<InitializeParameters<'UniversalResolver'>>().toEqualTypeOf<
+        []
+      >()
     })
   })
 
